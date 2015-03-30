@@ -90,11 +90,9 @@ public class RedisTestProfileValueSource implements ProfileValueSource {
 		if (!REDIS_VERSION_KEY.equals(key)) {
 			return System.getProperty(key);
 		}
-
 		if (redisVersion.compareTo(RedisVersionUtils.parseVersion(REDIS_30)) >= 0) {
 			return REDIS_30;
 		}
-
 		if (redisVersion.compareTo(RedisVersionUtils.parseVersion(REDIS_28)) >= 0) {
 			return REDIS_28;
 		}
