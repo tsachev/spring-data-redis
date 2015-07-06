@@ -94,7 +94,7 @@ import redis.clients.util.Pool;
 public class JedisConnection extends AbstractRedisConnection {
 
 	private static final Field CLIENT_FIELD;
-	private static final Method SEND_COMMAND;
+	private static Method SEND_COMMAND;
 	private static final Method GET_RESPONSE;
 
 	private static final String SHUTDOWN_SCRIPT = "return redis.call('SHUTDOWN','%s')";
@@ -108,15 +108,21 @@ public class JedisConnection extends AbstractRedisConnection {
 		ReflectionUtils.makeAccessible(CLIENT_FIELD);
 
 		try {
-			Class<?> commandType = ClassUtils.isPresent("redis.clients.jedis.ProtocolCommand", null) ? ClassUtils.forName(
-					"redis.clients.jedis.ProtocolCommand", null) : ClassUtils.forName("redis.clients.jedis.Protocol$Command",
-					null);
 
-			SEND_COMMAND = ReflectionUtils.findMethod(Connection.class, "sendCommand", new Class[] { commandType,
-					byte[][].class });
-		} catch (Exception e) {
-			throw new NoClassDefFoundError(
-					"Could not find required flavor of command required by 'redis.clients.jedis.Connection#sendCommand'.");
+			if (ClassUtils.isPresent("redis.clients.jedis.ProtocolCommand", null)) {
+				SEND_COMMAND = ReflectionUtils.findMethod(Connection.class, "sendCommand",
+						new Class[] { ClassUtils.forName("redis.clients.jedis.ProtocolCommand", null), byte[][].class });
+			} else if (ClassUtils.isPresent("edis.clients.jedis.Command", null)) {
+				SEND_COMMAND = ReflectionUtils.findMethod(Connection.class, "sendCommand",
+						new Class[] { ClassUtils.forName("redis.clients.jedis.Command", null), byte[][].class });
+			} else {
+				SEND_COMMAND = ReflectionUtils.findMethod(Connection.class, "sendCommand",
+						new Class[] { ClassUtils.forName("redis.clients.jedis.Protocol.Command", null), byte[][].class });
+			}
+		} catch (Exception e) {} finally {
+			if (SEND_COMMAND == null) {
+				throw new NoClassDefFoundError("cannot find commmand");
+			}
 		}
 
 		ReflectionUtils.makeAccessible(SEND_COMMAND);
@@ -2115,7 +2121,7 @@ public class JedisConnection extends AbstractRedisConnection {
 	public Long zInterStore(byte[] destKey, Aggregate aggregate, int[] weights, byte[]... sets) {
 		try {
 
-			ZParams zparams = new ZParams().weights(convertWeightsToDouble(weights)).aggregate(
+			ZParams zparams = new ZParams().weightsByDouble(convertWeightsToDouble(weights)).aggregate(
 					ZParams.Aggregate.valueOf(aggregate.name()));
 
 			if (isPipelined()) {
@@ -2679,7 +2685,7 @@ public class JedisConnection extends AbstractRedisConnection {
 
 	public Long zUnionStore(byte[] destKey, Aggregate aggregate, int[] weights, byte[]... sets) {
 		try {
-			ZParams zparams = new ZParams().weights(convertWeightsToDouble(weights)).aggregate(
+			ZParams zparams = new ZParams().weightsByDouble(convertWeightsToDouble(weights)).aggregate(
 					ZParams.Aggregate.valueOf(aggregate.name()));
 
 			if (isPipelined()) {

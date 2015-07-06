@@ -15,7 +15,6 @@
  */
 package org.springframework.data.redis.connection.jedis;
 
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Collections;
@@ -310,7 +309,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 		if (cluster != null) {
 			try {
 				cluster.close();
-			} catch (IOException ex) {
+			} catch (Exception ex) {
 				log.warn("Cannot properly close Jedis cluster", ex);
 			}
 		}

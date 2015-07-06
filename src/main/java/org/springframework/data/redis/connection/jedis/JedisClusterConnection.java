@@ -2256,4 +2256,57 @@ public class JedisClusterConnection implements RedisClusterConnection {
 		T doInJedis(Jedis jedis);
 	}
 
+	@Override
+	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Set<byte[]> zRevRangeByScore(byte[] key, Range range) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Set<byte[]> zRevRangeByScore(byte[] key, Range range, Limit limit) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
+	@Override
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
+	@Override
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
+	@Override
+	public Long zCount(byte[] key, Range range) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
+	@Override
+	public Long zRemRangeByScore(byte[] key, Range range) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
+	@Override
+	public Set<byte[]> zRangeByScore(byte[] key, Range range) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
+	@Override
+	public Set<byte[]> zRangeByScore(byte[] key, Range range, Limit limit) {
+		throw new UnsupportedOperationException("TODO: implement me!");
+	}
+
 }
