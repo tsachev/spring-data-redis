@@ -21,14 +21,16 @@ import org.springframework.util.ObjectUtils;
 /**
  * @author Christoph Strobl
  * @author Thomas Darimont
- * 
  * @since 1.4
  */
 public class RedisNode implements NamedNode {
 
+	private String id;
 	private String name;
 	private String host;
 	private int port;
+	private NodeType type;
+	private String masterId;
 
 	/**
 	 * Creates a new {@link RedisNode} with the given {@code host}, {@code port}.
@@ -37,9 +39,9 @@ public class RedisNode implements NamedNode {
 	 * @param port
 	 */
 	public RedisNode(String host, int port) {
-		
-		Assert.notNull(host,"host must not be null!");
-		
+
+		Assert.notNull(host, "host must not be null!");
+
 		this.host = host;
 		this.port = port;
 	}
@@ -65,6 +67,70 @@ public class RedisNode implements NamedNode {
 
 	public void setName(String name) {
 		this.name = name;
+	}
+
+	/**
+	 * @return
+	 * @since 1.6
+	 */
+	public String getMasterId() {
+		return masterId;
+	}
+
+	/**
+	 * @param masterId
+	 * @since 1.6
+	 */
+	public void setMasterId(String masterId) {
+		this.masterId = masterId;
+	}
+
+	/**
+	 * @return
+	 * @since 1.6
+	 */
+	public String getId() {
+		return id;
+	}
+
+	/**
+	 * @param id
+	 * @since 1.6
+	 */
+	public void setId(String id) {
+		this.id = id;
+	}
+
+	/**
+	 * @param type
+	 * @since 1.6
+	 */
+	public void setType(NodeType type) {
+		this.type = type;
+	}
+
+	/**
+	 * @return
+	 * @since 1.6
+	 */
+	public NodeType getType() {
+		return type;
+	}
+
+	/**
+	 * @return
+	 * @since 1.6
+	 */
+	public boolean isMaster() {
+		return ObjectUtils.nullSafeEquals(NodeType.MASTER, getType());
+	}
+
+	/**
+	 * @return
+	 * @since 1.6
+	 */
+	public boolean isSlave() {
+		return ObjectUtils.nullSafeEquals(NodeType.SLAVE, getType());
 	}
 
 	@Override
@@ -110,7 +176,14 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @author Christoph Strobl
-	 * 
+	 * @since 1.6
+	 */
+	public enum NodeType {
+		MASTER, SLAVE
+	}
+
+	/**
+	 * @author Christoph Strobl
 	 * @since 1.4
 	 */
 	public static class RedisNodeBuilder {
@@ -134,9 +207,25 @@ public class RedisNode implements NamedNode {
 			return this;
 		}
 
+		public RedisNodeBuilder withId(String id) {
+
+			node.id = id;
+			return this;
+		}
+
 		public RedisNode build() {
 			return this.node;
 		}
+	}
+
+	public <T extends RedisNode> T withId(String id) {
+		this.id = id;
+		return (T) this;
+	}
+
+	public <T extends RedisNode> T withType(NodeType type) {
+		this.type = type;
+		return (T) this;
 	}
 
 }

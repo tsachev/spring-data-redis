@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2014 the original author or authors.
+ * Copyright 2013-2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.hamcrest.core.IsNot;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -42,6 +43,7 @@ import org.junit.runners.Parameterized.Parameters;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.data.redis.ConnectionFactoryTracker;
 import org.springframework.data.redis.ObjectFactory;
 import org.springframework.data.redis.RedisTestProfileValueSource;
 import org.springframework.data.redis.SettingsUtils;
@@ -68,17 +70,19 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @RunWith(Parameterized.class)
 public class RedisTemplateTests<K, V> {
 
-	@Autowired private RedisTemplate<K, V> redisTemplate;
+	@Autowired protected RedisTemplate<K, V> redisTemplate;
 
-	private ObjectFactory<K> keyFactory;
+	protected ObjectFactory<K> keyFactory;
 
-	private ObjectFactory<V> valueFactory;
+	protected ObjectFactory<V> valueFactory;
 
 	public RedisTemplateTests(RedisTemplate<K, V> redisTemplate, ObjectFactory<K> keyFactory,
 			ObjectFactory<V> valueFactory) {
 		this.redisTemplate = redisTemplate;
 		this.keyFactory = keyFactory;
 		this.valueFactory = valueFactory;
+
+		ConnectionFactoryTracker.add(redisTemplate.getConnectionFactory());
 	}
 
 	@After
@@ -89,6 +93,11 @@ public class RedisTemplateTests<K, V> {
 				return null;
 			}
 		});
+	}
+
+	@AfterClass
+	public static void cleanUp() {
+		ConnectionFactoryTracker.cleanUp();
 	}
 
 	@Parameters
