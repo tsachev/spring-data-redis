@@ -68,11 +68,11 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @RunWith(Parameterized.class)
 public class RedisTemplateTests<K, V> {
 
-	@Autowired private RedisTemplate<K, V> redisTemplate;
+	@Autowired protected RedisTemplate<K, V> redisTemplate;
 
-	private ObjectFactory<K> keyFactory;
+	protected ObjectFactory<K> keyFactory;
 
-	private ObjectFactory<V> valueFactory;
+	protected ObjectFactory<V> valueFactory;
 
 	public RedisTemplateTests(RedisTemplate<K, V> redisTemplate, ObjectFactory<K> keyFactory,
 			ObjectFactory<V> valueFactory) {
