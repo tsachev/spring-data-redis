@@ -2,4 +2,5 @@ language: java
 jdk:
   - oraclejdk7
   - oraclejdk8
+install: travis_wait 
 script: make test
