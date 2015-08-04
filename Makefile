@@ -137,5 +137,5 @@ stop: redis-stop sentinel-stop cluster-stop
 test:
 	$(MAKE) start
 	sleep 2
-	-$(PWD)/gradlew clean build -DrunLongTests=true -S
+	-$(PWD)/gradlew clean build -DrunLongTests=true -Dorg.gradle.jvmargs="-Xmx1024m -XX:PermSize=512m -XX:MaxPermSize=1024m -XX:+CMSClassUnloadingEnabled" -S
 	$(MAKE) stop
