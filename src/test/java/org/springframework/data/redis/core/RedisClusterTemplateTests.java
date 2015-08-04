@@ -83,12 +83,17 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 				CLUSTER_NODES));
 		lettuceConnectionFactory.afterPropertiesSet();
 
-		final StringRedisTemplate template2 = new StringRedisTemplate(lettuceConnectionFactory);
-		template2.boundValueOps((String) key1).set((String) value1);
-		template2.expire((String) key1, 5, TimeUnit.SECONDS);
-		long expire = template2.getExpire((String) key1, TimeUnit.MILLISECONDS);
-		// we should still get expire in milliseconds if requested
-		assertTrue(expire > 1000 && expire <= 5000);
+		try {
+
+			final StringRedisTemplate template2 = new StringRedisTemplate(lettuceConnectionFactory);
+			template2.boundValueOps((String) key1).set((String) value1);
+			template2.expire((String) key1, 5, TimeUnit.SECONDS);
+			long expire = template2.getExpire((String) key1, TimeUnit.MILLISECONDS);
+			// we should still get expire in milliseconds if requested
+			assertTrue(expire > 1000 && expire <= 5000);
+		} finally {
+			lettuceConnectionFactory.destroy();
+		}
 	}
 
 	@Test(expected = InvalidDataAccessApiUsageException.class)
