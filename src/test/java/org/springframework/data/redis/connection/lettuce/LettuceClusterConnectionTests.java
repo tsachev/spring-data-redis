@@ -40,8 +40,8 @@ import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 
 import com.lambdaworks.redis.RedisClient;
-import com.lambdaworks.redis.RedisClusterConnection;
 import com.lambdaworks.redis.RedisURI.Builder;
+import com.lambdaworks.redis.cluster.RedisAdvancedClusterConnection;
 import com.lambdaworks.redis.cluster.RedisClusterClient;
 
 /**
@@ -66,7 +66,7 @@ public class LettuceClusterConnectionTests {
 	static final byte[] VALUE_3_BYTES = LettuceConverters.toBytes(VALUE_3);
 
 	RedisClusterClient client;
-	RedisClusterConnection<String, String> nativeConnection;
+	RedisAdvancedClusterConnection<String, String> nativeConnection;
 	LettuceClusterConnection clusterConnection;
 
 	@BeforeClass
