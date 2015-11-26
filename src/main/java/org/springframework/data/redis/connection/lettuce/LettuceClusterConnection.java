@@ -59,6 +59,7 @@ import com.lambdaworks.redis.codec.RedisCodec;
 /**
  * @author Christoph Strobl
  * @author Mark Paluch
+ * @since 1.7
  */
 public class LettuceClusterConnection extends LettuceConnection implements
 		org.springframework.data.redis.connection.RedisClusterConnection, ClusterTopologyProvider,
@@ -95,7 +96,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 		Assert.notNull(pattern, "Pattern must not be null!");
 
-		Collection<List<byte[]>> keysPerNode = clusterCommandExecutor.runCommandOnAllNodes(
+		Collection<List<byte[]>> keysPerNode = clusterCommandExecutor.executeCommandOnAllNodes(
 				new LettuceCommandCallback<List<byte[]>>() {
 
 					@Override
@@ -118,7 +119,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 */
 	public void flushAll() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new LettuceCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new LettuceCommandCallback<Void>() {
 
 			@Override
 			public Void doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -135,7 +136,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void flushDb() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new LettuceCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new LettuceCommandCallback<Void>() {
 
 			@Override
 			public Void doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -153,7 +154,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	public Long dbSize() {
 
 		Map<RedisClusterNode, Long> dbSizes = clusterCommandExecutor
-				.runCommandOnAllNodes(new LettuceCommandCallback<Long>() {
+				.executeCommandOnAllNodes(new LettuceCommandCallback<Long>() {
 
 					@Override
 					public Long doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -182,7 +183,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 		Properties infos = new Properties();
 
-		infos.putAll(clusterCommandExecutor.runCommandOnAllNodes(new LettuceCommandCallback<Properties>() {
+		infos.putAll(clusterCommandExecutor.executeCommandOnAllNodes(new LettuceCommandCallback<Properties>() {
 
 			@Override
 			public Properties doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -214,7 +215,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public Iterable<RedisClusterNode> getClusterSlaves(final RedisClusterNode master) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<Set<RedisClusterNode>>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<Set<RedisClusterNode>>() {
 
 			@Override
 			public Set<RedisClusterNode> doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -244,7 +245,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public ClusterInfo getClusterInfo() {
 
-		return clusterCommandExecutor.runCommandOnArbitraryNode(new LettuceCommandCallback<ClusterInfo>() {
+		return clusterCommandExecutor.executeCommandOnArbitraryNode(new LettuceCommandCallback<ClusterInfo>() {
 
 			@Override
 			public ClusterInfo doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -256,7 +257,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void addSlots(RedisClusterNode node, final int... slots) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -274,7 +275,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void deleteSlots(RedisClusterNode node, final int... slots) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -290,7 +291,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(getClusterNodes());
 		nodes.remove(node);
 
-		this.clusterCommandExecutor.runCommandAsyncOnNodes(new LettuceCommandCallback<String>() {
+		this.clusterCommandExecutor.executeCommandAsyncOnNodes(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -305,7 +306,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 		Assert.notNull(node, "Cluster node must not be null for CLUSTER MEET command!");
 
-		this.clusterCommandExecutor.runCommandOnAllNodes(new LettuceCommandCallback<String>() {
+		this.clusterCommandExecutor.executeCommandOnAllNodes(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -317,7 +318,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void clusterSetSlot(final RedisClusterNode node, final int slot, final AddSlots mode) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -344,7 +345,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void clusterReplicate(final RedisClusterNode master, RedisClusterNode slave) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -356,7 +357,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 	@Override
 	public String ping() {
-		Collection<String> ping = clusterCommandExecutor.runCommandOnAllNodes(new LettuceCommandCallback<String>() {
+		Collection<String> ping = clusterCommandExecutor.executeCommandOnAllNodes(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> connection) {
@@ -376,7 +377,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public String ping(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -405,7 +406,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void bgReWriteAof(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -417,7 +418,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void bgSave(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -429,7 +430,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public Long lastSave(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<Long>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<Long>() {
 
 			@Override
 			public Long doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -441,7 +442,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void save(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -454,7 +455,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public Long dbSize(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<Long>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<Long>() {
 
 			@Override
 			public Long doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -466,7 +467,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void flushDb(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -478,7 +479,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void flushAll(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -491,7 +492,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public Properties info(RedisClusterNode node) {
 
-		return LettuceConverters.toProperties(clusterCommandExecutor.runCommandOnSingleNode(
+		return LettuceConverters.toProperties(clusterCommandExecutor.executeCommandOnSingleNode(
 				new LettuceCommandCallback<String>() {
 
 					@Override
@@ -504,7 +505,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public Set<byte[]> keys(RedisClusterNode node, final byte[] pattern) {
 
-		return LettuceConverters.toBytesSet(clusterCommandExecutor.runCommandOnSingleNode(
+		return LettuceConverters.toBytesSet(clusterCommandExecutor.executeCommandOnSingleNode(
 				new LettuceCommandCallback<List<byte[]>>() {
 
 					@Override
@@ -517,7 +518,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public byte[] randomKey(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<byte[]>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<byte[]>() {
 
 			@Override
 			public byte[] doInCluster(RedisClusterConnection<byte[], byte[]> client) {
@@ -553,7 +554,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void shutdown(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new LettuceCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<Void>() {
 
 			@Override
 			public Void doInCluster(RedisClusterConnection<byte[], byte[]> client) {

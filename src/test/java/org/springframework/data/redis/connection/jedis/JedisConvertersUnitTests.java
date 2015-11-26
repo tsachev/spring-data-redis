@@ -310,7 +310,7 @@ public class JedisConvertersUnitTests {
 		assertThat(node.getPort(), is(7369));
 		assertThat(node.getType(), is(NodeType.SLAVE));
 		assertThat(node.getMasterId(), is("ef570f86c7b1a953846668debc177a3a16733420"));
-		assertThat(node.getSlotRange(), nullValue());
+		assertThat(node.getSlotRange(), notNullValue());
 	}
 
 	/**

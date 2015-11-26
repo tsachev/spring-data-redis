@@ -18,9 +18,12 @@ package org.springframework.data.redis.connection;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -33,15 +36,26 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.Assert;
 
 /**
+ * {@link ClusterCommandExecutor} takes care of running commands across the known cluster nodes. By providing an
+ * {@link AsyncTaskExecutor} the execution behavior can be influenced.
+ * 
  * @author Christoph Strobl
+ * @since 1.7
  */
 public class ClusterCommandExecutor implements DisposableBean {
 
 	private AsyncTaskExecutor executor;
-	private ClusterTopologyProvider topologyProvider;
-	private ClusterNodeResourceProvider resourceProvider;
-	private ExceptionTranslationStrategy exceptionTranslationStrategy;
+	private final ClusterTopologyProvider topologyProvider;
+	private final ClusterNodeResourceProvider resourceProvider;
+	private final ExceptionTranslationStrategy exceptionTranslationStrategy;
 
+	/**
+	 * Create a new instance of {@link ClusterCommandExecutor}.
+	 * 
+	 * @param topologyProvider must not be {@literal null}.
+	 * @param resourceProvider must not be {@literal null}.
+	 * @param exceptionTranslation must not be {@literal null}.
+	 */
 	public ClusterCommandExecutor(ClusterTopologyProvider topologyProvider, ClusterNodeResourceProvider resourceProvider,
 			ExceptionTranslationStrategy exceptionTranslation) {
 
@@ -54,6 +68,12 @@ public class ClusterCommandExecutor implements DisposableBean {
 		this.exceptionTranslationStrategy = exceptionTranslation;
 	}
 
+	/**
+	 * @param topologyProvider must not be {@literal null}.
+	 * @param resourceProvider must not be {@literal null}.
+	 * @param exceptionTranslation must not be {@literal null}.
+	 * @param executor can be {@literal null}.
+	 */
 	public ClusterCommandExecutor(ClusterTopologyProvider topologyProvider, ClusterNodeResourceProvider resourceProvider,
 			ExceptionTranslationStrategy exceptionTranslation, AsyncTaskExecutor executor) {
 
@@ -69,26 +89,39 @@ public class ClusterCommandExecutor implements DisposableBean {
 		}
 	}
 
-	public interface ClusterCommandCallback<T, S> {
-		S doInCluster(T client);
-	}
+	/**
+	 * Run {@link ClusterCommandCallback} on a random node.
+	 * 
+	 * @param cmd must not be {@literal null}.
+	 * @return
+	 */
+	public <T> T executeCommandOnArbitraryNode(ClusterCommandCallback<?, T> cmd) {
 
-	public <T> T runCommandOnArbitraryNode(ClusterCommandCallback<?, T> cmd) {
-
+		Assert.notNull(cmd, "ClusterCommandCallback must not be null!");
 		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(getClusterTopology().getNodes());
-		return runCommandOnSingleNode(cmd, nodes.get(new Random().nextInt(nodes.size())));
+		return executeCommandOnSingleNode(cmd, nodes.get(new Random().nextInt(nodes.size())));
 	}
 
-	public <S, T> T runCommandOnSingleNode(ClusterCommandCallback<S, T> cmd, RedisClusterNode node) {
+	/**
+	 * Run {@link ClusterCommandCallback} on given {@link RedisClusterNode}.
+	 * 
+	 * @param cmd must not be {@literal null}.
+	 * @param node must not be {@literal null}.
+	 * @throws IllegalArgumentException in case no resource can be acquired for given node.
+	 * @return
+	 */
+	public <S, T> T executeCommandOnSingleNode(ClusterCommandCallback<S, T> cmd, RedisClusterNode node) {
 
-		Assert.notNull(cmd, "Callback must not be null!");
+		Assert.notNull(cmd, "ClusterCommandCallback must not be null!");
+		Assert.notNull(node, "RedisClusterNode must not be null!");
 
 		S client = this.resourceProvider.getResourceForSpecificNode(node);
-		Assert.notNull(client, "Node not know in cluster. Is your cluster info up to date");
+		Assert.notNull(client, "Could not acquire resource for node. Is your cluster info up to date?");
 
 		try {
 			return cmd.doInCluster(client);
 		} catch (RuntimeException ex) {
+
 			RuntimeException translatedException = convertToDataAccessExeption(ex);
 			throw translatedException != null ? translatedException : ex;
 		} finally {
@@ -96,12 +129,25 @@ public class ClusterCommandExecutor implements DisposableBean {
 		}
 	}
 
-	public <S, T> Map<RedisClusterNode, T> runCommandOnAllNodes(final ClusterCommandCallback<S, T> cmd) {
-		return runCommandAsyncOnNodes(cmd, getClusterTopology().getMasterNodes());
+	/**
+	 * Run {@link ClusterCommandCallback} on all reachable master nodes.
+	 * 
+	 * @param cmd
+	 * @return
+	 * @throws ClusterCommandExecutionFailureException
+	 */
+	public <S, T> Map<RedisClusterNode, T> executeCommandOnAllNodes(final ClusterCommandCallback<S, T> cmd) {
+		return executeCommandAsyncOnNodes(cmd, getClusterTopology().getMasterNodes());
 	}
 
-	public <S, T> java.util.Map<RedisClusterNode, T> runCommandAsyncOnNodes(final ClusterCommandCallback<S, T> callback,
-			Iterable<RedisClusterNode> nodes) {
+	/**
+	 * @param callback
+	 * @param nodes
+	 * @return
+	 * @throws ClusterCommandExecutionFailureException
+	 */
+	public <S, T> java.util.Map<RedisClusterNode, T> executeCommandAsyncOnNodes(
+			final ClusterCommandCallback<S, T> callback, Iterable<RedisClusterNode> nodes) {
 
 		Assert.notNull(callback, "Callback must not be null!");
 		Assert.notNull(nodes, "Nodes must not be null!");
@@ -113,7 +159,7 @@ public class ClusterCommandExecutor implements DisposableBean {
 
 				@Override
 				public T call() throws Exception {
-					return runCommandOnSingleNode(callback, node);
+					return executeCommandOnSingleNode(callback, node);
 				}
 			}));
 		}
@@ -165,6 +211,70 @@ public class ClusterCommandExecutor implements DisposableBean {
 		return result;
 	}
 
+	/**
+	 * Run {@link MultiKeyClusterCommandCallback} with on a curated set of nodes serving one or more keys.
+	 * 
+	 * @param cmd
+	 * @return
+	 * @throws ClusterCommandExecutionFailureException
+	 */
+	public <S, T> Map<RedisClusterNode, T> executeMuliKeyCommand(final MultiKeyClusterCommandCallback<S, T> cmd,
+			Iterable<byte[]> keys) {
+
+		Map<RedisClusterNode, Set<byte[]>> nodeKeyMap = new HashMap<RedisClusterNode, Set<byte[]>>();
+
+		for (byte[] key : keys) {
+			for (RedisClusterNode node : getClusterTopology().getKeyServingNodes(key)) {
+
+				if (nodeKeyMap.containsKey(node)) {
+					nodeKeyMap.get(node).add(key);
+				} else {
+					Set<byte[]> keySet = new LinkedHashSet<byte[]>();
+					keySet.add(key);
+					nodeKeyMap.put(node, keySet);
+				}
+			}
+		}
+
+		Map<RedisClusterNode, Future<T>> futures = new LinkedHashMap<RedisClusterNode, Future<T>>();
+		for (final Entry<RedisClusterNode, Set<byte[]>> entry : nodeKeyMap.entrySet()) {
+
+			if (entry.getKey().isMaster()) {
+				for (final byte[] key : entry.getValue()) {
+					futures.put(entry.getKey(), executor.submit(new Callable<T>() {
+
+						@Override
+						public T call() throws Exception {
+							return (T) executeMultiKeyCommandOnSingleNode(cmd, entry.getKey(), key);
+						}
+					}));
+				}
+			}
+		}
+		return collectResults(futures);
+	}
+
+	private <S, T> T executeMultiKeyCommandOnSingleNode(MultiKeyClusterCommandCallback<S, T> cmd, RedisClusterNode node,
+			byte[] key) {
+
+		Assert.notNull(cmd, "MultiKeyCommandCallback must not be null!");
+		Assert.notNull(node, "RedisClusterNode must not be null!");
+		Assert.notNull(key, "Keys for execution must not be null!");
+
+		S client = this.resourceProvider.getResourceForSpecificNode(node);
+		Assert.notNull(client, "Could not acquire resource for node. Is your cluster info up to date?");
+
+		try {
+			return cmd.doInCluster(client, key);
+		} catch (RuntimeException ex) {
+
+			RuntimeException translatedException = convertToDataAccessExeption(ex);
+			throw translatedException != null ? translatedException : ex;
+		} finally {
+			this.resourceProvider.returnResourceForSpecificNode(node, client);
+		}
+	}
+
 	private ClusterTopology getClusterTopology() {
 		return this.topologyProvider.getTopology();
 	}
@@ -173,6 +283,10 @@ public class ClusterCommandExecutor implements DisposableBean {
 		return exceptionTranslationStrategy.translate(e);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.beans.factory.DisposableBean#destroy()
+	 */
 	@Override
 	public void destroy() throws Exception {
 
@@ -180,4 +294,29 @@ public class ClusterCommandExecutor implements DisposableBean {
 			((DisposableBean) executor).destroy();
 		}
 	}
+
+	/**
+	 * Callback interface for Redis 'low level' code using the cluster client directly. To be used with
+	 * {@link ClusterCommandExecutor} execution methods.
+	 * 
+	 * @author Christoph Strobl
+	 * @param <T> native driver connection
+	 * @param <S>
+	 * @since 1.7
+	 */
+	public static interface ClusterCommandCallback<T, S> {
+		S doInCluster(T client);
+	}
+
+	/**
+	 * Callback interface for Redis 'low level' code using the cluster client to execute multi key commands.
+	 * 
+	 * @author Christoph Strobl
+	 * @param <T> native driver connection
+	 * @param <S>
+	 */
+	public static interface MultiKeyClusterCommandCallback<T, S> {
+		S doInCluster(T client, byte[] key);
+	}
+
 }

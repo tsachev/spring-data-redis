@@ -22,7 +22,7 @@ import java.util.Set;
  * {@link RedisClusterConnection} allows sending commands to dedicated nodes within the cluster.
  * 
  * @author Christoph Strobl
- * @since 1.6
+ * @since 1.7
  */
 public interface RedisClusterConnection extends RedisConnection, RedisClusterCommands {
 

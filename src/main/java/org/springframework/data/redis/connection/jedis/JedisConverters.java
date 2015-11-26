@@ -238,7 +238,7 @@ abstract public class JedisConverters extends Converters {
 	/**
 	 * @param source
 	 * @return
-	 * @since 1.5
+	 * @since 1.7
 	 */
 	public static RedisClusterNode toNode(Object source) {
 		return OBJECT_TO_CLUSTER_NODE_CONVERTER.convert(source);
@@ -278,7 +278,7 @@ abstract public class JedisConverters extends Converters {
 	/**
 	 * @param clusterNodes
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public static Set<RedisClusterNode> toSetOfRedisClusterNodes(String clusterNodes) {
 
@@ -293,7 +293,7 @@ abstract public class JedisConverters extends Converters {
 	/**
 	 * @param clusterNodes
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public static Set<RedisClusterNode> toSetOfRedisClusterNodes(Collection<String> lines) {
 

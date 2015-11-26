@@ -15,14 +15,11 @@
  */
 package org.springframework.data.redis.core;
 
-import static org.hamcrest.core.Is.*;
-
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-import org.junit.Assume;
-import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.Parameterized.Parameters;
@@ -36,15 +33,13 @@ import org.springframework.data.redis.RawObjectFactory;
 import org.springframework.data.redis.StringObjectFactory;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
-import org.springframework.data.redis.connection.jedis.JedisConverters;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.serializer.GenericToStringSerializer;
 import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.OxmSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.test.util.RedisClusterRule;
 import org.springframework.oxm.xstream.XStreamMarshaller;
-
-import redis.clients.jedis.Jedis;
 
 /**
  * @author Christoph Strobl
@@ -58,21 +53,7 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 		super(redisTemplate, keyFactory, valueFactory);
 	}
 
-	@BeforeClass
-	public static void before() {
-
-		Jedis jedis = new Jedis("127.0.0.1", 7379);
-		String mode = JedisConverters.toProperties(jedis.info()).getProperty("redis_mode");
-		jedis.close();
-
-		Assume.assumeThat(mode, is("cluster"));
-	}
-
-	@Test
-	@Ignore("not supported in cluster mode")
-	public void testGetExpireMillisNotSupported() {
-		super.testGetExpireMillisNotSupported();
-	}
+	public static @ClassRule RedisClusterRule clusterAvaialbale = new RedisClusterRule();
 
 	@Test(expected = InvalidDataAccessApiUsageException.class)
 	@Ignore("Pipeline not supported in cluster mode")

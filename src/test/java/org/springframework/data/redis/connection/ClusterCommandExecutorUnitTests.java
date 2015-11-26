@@ -18,9 +18,11 @@ package org.springframework.data.redis.connection;
 import static org.hamcrest.core.Is.*;
 import static org.hamcrest.core.IsCollectionContaining.*;
 import static org.junit.Assert.*;
+import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 
@@ -29,6 +31,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.core.convert.converter.Converter;
@@ -37,6 +40,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.ClusterCommandCallback;
+import org.springframework.data.redis.connection.ClusterCommandExecutor.MultiKeyClusterCommandCallback;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisNode.NodeType;
 import org.springframework.scheduling.concurrent.ConcurrentTaskExecutor;
@@ -83,6 +87,15 @@ public class ClusterCommandExecutorUnitTests {
 
 	};
 
+	private static final MultiKeyConnectionCommandCallback<String> MULTIKEY_CALLBACK = new MultiKeyConnectionCommandCallback<String>() {
+
+		@Override
+		public String doInCluster(Connection connection, byte[] key) {
+			return connection.bloodAndAshes(key);
+		}
+
+	};
+
 	@Mock Connection con1;
 	@Mock Connection con2;
 	@Mock Connection con3;
@@ -102,9 +115,9 @@ public class ClusterCommandExecutorUnitTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void runCommandOnSingleNodeShouldBeExecutedCorrectly() {
+	public void executeCommandOnSingleNodeShouldBeExecutedCorrectly() {
 
-		executor.runCommandOnSingleNode(COMMAND_CALLBACK, CLUSTER_NODE_2);
+		executor.executeCommandOnSingleNode(COMMAND_CALLBACK, CLUSTER_NODE_2);
 
 		verify(con2, times(1)).theWheelWeavesAsTheWheelWills();
 	}
@@ -113,37 +126,37 @@ public class ClusterCommandExecutorUnitTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test(expected = IllegalArgumentException.class)
-	public void runCommandOnSingleNodeShouldThrowExceptionWhenNodeIsNull() {
-		executor.runCommandOnSingleNode(COMMAND_CALLBACK, null);
+	public void executeCommandOnSingleNodeShouldThrowExceptionWhenNodeIsNull() {
+		executor.executeCommandOnSingleNode(COMMAND_CALLBACK, null);
 	}
 
 	/**
 	 * @see DATAREDIS-315
 	 */
 	@Test(expected = IllegalArgumentException.class)
-	public void runCommandOnSingleNodeShouldThrowExceptionWhenCommandCallbackIsNull() {
-		executor.runCommandOnSingleNode(null, CLUSTER_NODE_1);
+	public void executeCommandOnSingleNodeShouldThrowExceptionWhenCommandCallbackIsNull() {
+		executor.executeCommandOnSingleNode(null, CLUSTER_NODE_1);
 	}
 
 	/**
 	 * @see DATAREDIS-315
 	 */
 	@Test(expected = IllegalArgumentException.class)
-	public void runCommandOnSingleNodeShouldThrowExceptionWhenNodeIsUnknown() {
-		executor.runCommandOnSingleNode(COMMAND_CALLBACK, UNKNOWN_CLUSTER_NODE);
+	public void executeCommandOnSingleNodeShouldThrowExceptionWhenNodeIsUnknown() {
+		executor.executeCommandOnSingleNode(COMMAND_CALLBACK, UNKNOWN_CLUSTER_NODE);
 	}
 
 	/**
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void runCommandAsyncOnNodesShouldExecuteCommandOnGivenNodes() {
+	public void executeCommandAsyncOnNodesShouldExecuteCommandOnGivenNodes() {
 
 		ClusterCommandExecutor executor = new ClusterCommandExecutor(new MockClusterNodeProvider(),
 				new MockClusterResourceProvider(), new PassThroughExceptionTranslationStrategy(exceptionConverter),
 				new ConcurrentTaskExecutor(new SyncTaskExecutor()));
 
-		executor.runCommandAsyncOnNodes(COMMAND_CALLBACK, Arrays.asList(CLUSTER_NODE_1, CLUSTER_NODE_2));
+		executor.executeCommandAsyncOnNodes(COMMAND_CALLBACK, Arrays.asList(CLUSTER_NODE_1, CLUSTER_NODE_2));
 
 		verify(con1, times(1)).theWheelWeavesAsTheWheelWills();
 		verify(con2, times(1)).theWheelWeavesAsTheWheelWills();
@@ -154,13 +167,13 @@ public class ClusterCommandExecutorUnitTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void runCommandOnAllNodesShouldExecuteCommandOnEveryKnwonClusterNode() {
+	public void executeCommandOnAllNodesShouldExecuteCommandOnEveryKnwonClusterNode() {
 
 		ClusterCommandExecutor executor = new ClusterCommandExecutor(new MockClusterNodeProvider(),
 				new MockClusterResourceProvider(), new PassThroughExceptionTranslationStrategy(exceptionConverter),
 				new ConcurrentTaskExecutor(new SyncTaskExecutor()));
 
-		executor.runCommandOnAllNodes(COMMAND_CALLBACK);
+		executor.executeCommandOnAllNodes(COMMAND_CALLBACK);
 
 		verify(con1, times(1)).theWheelWeavesAsTheWheelWills();
 		verify(con2, times(1)).theWheelWeavesAsTheWheelWills();
@@ -171,14 +184,14 @@ public class ClusterCommandExecutorUnitTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void runCommandAsyncOnNodesShouldCompleteAndCollectErrorsOfAllNodes() {
+	public void executeCommandAsyncOnNodesShouldCompleteAndCollectErrorsOfAllNodes() {
 
 		when(con1.theWheelWeavesAsTheWheelWills()).thenReturn("rand");
 		when(con2.theWheelWeavesAsTheWheelWills()).thenThrow(new IllegalStateException("(error) mat lost the dagger..."));
 		when(con3.theWheelWeavesAsTheWheelWills()).thenReturn("perrin");
 
 		try {
-			executor.runCommandOnAllNodes(COMMAND_CALLBACK);
+			executor.executeCommandOnAllNodes(COMMAND_CALLBACK);
 		} catch (ClusterCommandExecutionFailureException e) {
 
 			assertThat(e.getCauses().size(), is(1));
@@ -194,16 +207,41 @@ public class ClusterCommandExecutorUnitTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void runCommandAsyncOnNodesShouldCollectResultsCorrectly() {
+	public void executeCommandAsyncOnNodesShouldCollectResultsCorrectly() {
 
 		when(con1.theWheelWeavesAsTheWheelWills()).thenReturn("rand");
 		when(con2.theWheelWeavesAsTheWheelWills()).thenReturn("mat");
 		when(con3.theWheelWeavesAsTheWheelWills()).thenReturn("perrin");
 
-		Map<RedisClusterNode, String> result = executor.runCommandOnAllNodes(COMMAND_CALLBACK);
+		Map<RedisClusterNode, String> result = executor.executeCommandOnAllNodes(COMMAND_CALLBACK);
 
 		assertThat(result.keySet(), hasItems(CLUSTER_NODE_1, CLUSTER_NODE_2, CLUSTER_NODE_3));
 		assertThat(result.values(), hasItems("rand", "mat", "perrin"));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void executeMultikeyCommandShouldRunCommandAcrossCluster() {
+
+		// key-1 and key-9 map both to node1
+		ArgumentCaptor<byte[]> captor = ArgumentCaptor.forClass(byte[].class);
+		when(con1.bloodAndAshes(captor.capture())).thenReturn("rand");
+
+		when(con2.bloodAndAshes(any(byte[].class))).thenReturn("mat");
+		when(con3.bloodAndAshes(any(byte[].class))).thenReturn("perrin");
+
+		Map<RedisClusterNode, String> result = executor.executeMuliKeyCommand(
+				MULTIKEY_CALLBACK,
+				new HashSet<byte[]>(Arrays.asList("key-1".getBytes(), "key-2".getBytes(), "key-3".getBytes(),
+						"key-9".getBytes())));
+
+		assertThat(result.keySet(), hasItems(CLUSTER_NODE_1, CLUSTER_NODE_2, CLUSTER_NODE_3));
+		assertThat(result.values(), hasItems("rand", "mat", "perrin"));
+
+		// check that 2 keys have been routed to node1
+		assertThat(captor.getAllValues().size(), is(2));
 	}
 
 	class MockClusterNodeProvider implements ClusterTopologyProvider {
@@ -245,8 +283,15 @@ public class ClusterCommandExecutorUnitTests {
 
 	}
 
+	static interface MultiKeyConnectionCommandCallback<S> extends MultiKeyClusterCommandCallback<Connection, S> {
+
+	}
+
 	static interface Connection {
+
 		String theWheelWeavesAsTheWheelWills();
+
+		String bloodAndAshes(byte[] key);
 	}
 
 }

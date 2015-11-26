@@ -36,7 +36,7 @@ import org.springframework.util.StringUtils;
  * environment.
  * 
  * @author Christoph Strobl
- * @since 1.5
+ * @since 1.7
  */
 public class RedisClusterConfiguration {
 
@@ -65,8 +65,8 @@ public class RedisClusterConfiguration {
 	 * 
 	 * <pre>
 	 * 
-	 * @param cluster must not be {@literal null}.
-	 * @since 1.5
+	 * @param cluster must not be
+	 * {@literal null}.
 	 */
 	public RedisClusterConfiguration(Collection<String> clusterNodes) {
 		this(new MapPropertySource("RedisClusterConfiguration", asMap(clusterNodes, -1, -1)));
@@ -84,7 +84,6 @@ public class RedisClusterConfiguration {
 	 * </pre>
 	 * 
 	 * @param propertySource must not be {@literal null}.
-	 * @since 1.5
 	 */
 	public RedisClusterConfiguration(PropertySource<?> propertySource) {
 

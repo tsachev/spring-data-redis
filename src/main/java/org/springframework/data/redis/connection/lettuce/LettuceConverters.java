@@ -617,7 +617,7 @@ abstract public class LettuceConverters extends Converters {
 	/**
 	 * @param clusterNodes
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public static Set<RedisClusterNode> toSetOfRedisClusterNodes(Collection<String> lines) {
 
@@ -637,7 +637,7 @@ abstract public class LettuceConverters extends Converters {
 	/**
 	 * @param source
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public static RedisClusterNode toRedisClusterNode(
 			com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode source) {

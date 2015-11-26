@@ -15,11 +15,8 @@
  */
 package org.springframework.data.redis.connection.jedis;
 
-import static org.springframework.util.Assert.*;
-import static org.springframework.util.ReflectionUtils.*;
-
-import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -31,12 +28,15 @@ import java.util.Random;
 import java.util.Set;
 
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.FallbackExceptionTranslationStrategy;
 import org.springframework.data.redis.connection.ClusterCommandExecutor;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.ClusterCommandCallback;
+import org.springframework.data.redis.connection.ClusterCommandExecutor.MultiKeyClusterCommandCallback;
 import org.springframework.data.redis.connection.ClusterInfo;
 import org.springframework.data.redis.connection.ClusterNodeResourceProvider;
+import org.springframework.data.redis.connection.ClusterSlotHashUtil;
 import org.springframework.data.redis.connection.ClusterTopology;
 import org.springframework.data.redis.connection.ClusterTopologyProvider;
 import org.springframework.data.redis.connection.DataType;
@@ -46,122 +46,107 @@ import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisNode;
 import org.springframework.data.redis.connection.RedisPipelineException;
 import org.springframework.data.redis.connection.RedisSentinelConnection;
+import org.springframework.data.redis.connection.RedisSubscribedConnectionException;
 import org.springframework.data.redis.connection.ReturnType;
 import org.springframework.data.redis.connection.SortParameters;
 import org.springframework.data.redis.connection.Subscription;
+import org.springframework.data.redis.connection.util.ByteArraySet;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanCursor;
 import org.springframework.data.redis.core.ScanIteration;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.types.RedisClientInfo;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 
+import redis.clients.jedis.BinaryJedisPubSub;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisCluster;
-import redis.clients.jedis.JedisClusterCommand;
-import redis.clients.jedis.JedisClusterConnectionHandler;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.ZParams;
 
 /**
+ * {@link RedisClusterConnection} implementation on top of {@link JedisCluster}.<br/>
+ * Uses the native {@link JedisCluster} api where possible and falls back to direct node communication using
+ * {@link Jedis} where needed.
+ * 
  * @author Christoph Strobl
+ * @since 1.7
  */
-public class JedisClusterConnection implements RedisClusterConnection, ClusterTopologyProvider,
-		ClusterNodeResourceProvider {
+public class JedisClusterConnection implements RedisClusterConnection, ClusterNodeResourceProvider {
 
 	private static final ExceptionTranslationStrategy EXCEPTION_TRANSLATION = new FallbackExceptionTranslationStrategy(
 			JedisConverters.exceptionConverter());
 
-	private static final Field CONNECTION_HANDLER;
 	private final JedisCluster cluster;
-	private final ThreadPoolTaskExecutor executor;
 
 	private boolean closed;
 
 	private final JedisClusterTopologyProvider topologyProvider;
 	private ClusterCommandExecutor clusterCommandExecutor;
 
-	static {
+	private volatile JedisSubscription subscription;
 
-		Field connectionHandler = findField(JedisCluster.class, "connectionHandler");
-		makeAccessible(connectionHandler);
-		CONNECTION_HANDLER = connectionHandler;
-	}
-
+	/**
+	 * Create new {@link JedisClusterConnection} utilizing native connections via {@link JedisCluster}.
+	 * 
+	 * @param cluster must not be {@literal null}.
+	 */
 	public JedisClusterConnection(JedisCluster cluster) {
 
-		notNull(cluster);
+		Assert.notNull(cluster, "JedisCluster must not be null.");
 		this.cluster = cluster;
 
-		executor = new ThreadPoolTaskExecutor();
-		this.executor.initialize();
 		closed = false;
-		this.topologyProvider = new JedisClusterTopologyProvider(cluster);
-		clusterCommandExecutor = new ClusterCommandExecutor(this, this, EXCEPTION_TRANSLATION);
+		topologyProvider = new JedisClusterTopologyProvider(cluster);
+		clusterCommandExecutor = new ClusterCommandExecutor(topologyProvider, this, EXCEPTION_TRANSLATION);
 	}
 
-	@Override
-	public void close() throws DataAccessException {
-		closed = true;
-	}
-
-	@Override
-	public boolean isClosed() {
-		return closed;
-	}
-
-	@Override
-	public Object getNativeConnection() {
-		return cluster;
-	}
-
-	@Override
-	public boolean isQueueing() {
-		return false;
-	}
-
-	@Override
-	public boolean isPipelined() {
-		return false;
-	}
-
-	@Override
-	public void openPipeline() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public List<Object> closePipeline() throws RedisPipelineException {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public RedisSentinelConnection getSentinelConnection() {
-		return null;
-	}
-
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisCommands#execute(java.lang.String, byte[][])
+	 */
 	@Override
 	public Object execute(String command, byte[]... args) {
-		throw new UnsupportedOperationException();
+
+		// TODO: execute command on all nodes? or throw exception requiring to execute command on a specific node
+		throw new UnsupportedOperationException("Execute is currently not supported in cluster mode.");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#del(byte[][])
+	 */
 	@Override
 	public Long del(byte[]... keys) {
 
-		noNullElements(keys, "Keys must not be null or contain null key!");
-		try {
-			for (byte[] key : keys) {
-				cluster.del(key);
+		Assert.noNullElements(keys, "Keys must not be null or contain null key!");
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.del(keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
 			}
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
 		}
-		return null;
+
+		return Long.valueOf(this.clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<Long>() {
+
+					@Override
+					public Long doInCluster(Jedis client, byte[] key) {
+						return client.del(key);
+					}
+				}, Arrays.asList(keys)).size());
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#type(byte[])
+	 */
 	@Override
 	public DataType type(byte[] key) {
+
 		try {
 			return JedisConverters.toDataType(cluster.type(key));
 		} catch (Exception ex) {
@@ -169,13 +154,17 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#keys(byte[])
+	 */
 	@Override
 	public Set<byte[]> keys(final byte[] pattern) {
 
-		notNull(pattern, "Pattern must not be null!");
+		Assert.notNull(pattern, "Pattern must not be null!");
 
-		Collection<Set<byte[]>> keysPerNode = clusterCommandExecutor.runCommandOnAllNodes(
-				new JedisCommandCallback<Set<byte[]>>() {
+		Collection<Set<byte[]>> keysPerNode = clusterCommandExecutor.executeCommandOnAllNodes(
+				new JedisClusterCommandCallback<Set<byte[]>>() {
 
 					@Override
 					public Set<byte[]> doInCluster(Jedis client) {
@@ -190,12 +179,16 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		return keys;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#keys(org.springframework.data.redis.connection.RedisClusterNode, byte[])
+	 */
 	@Override
 	public Set<byte[]> keys(RedisClusterNode node, final byte[] pattern) {
 
-		notNull(pattern, "Pattern must not be null!");
+		Assert.notNull(pattern, "Pattern must not be null!");
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Set<byte[]>>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Set<byte[]>>() {
 
 			@Override
 			public Set<byte[]> doInCluster(Jedis client) {
@@ -211,6 +204,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		throw new UnsupportedOperationException("Scan is not supported accros multiple nodes within a cluster");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#randomKey()
+	 */
 	@Override
 	public byte[] randomKey() {
 
@@ -235,10 +232,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		return null;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#randomKey(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public byte[] randomKey(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<byte[]>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<byte[]>() {
 
 			@Override
 			public byte[] doInCluster(Jedis client) {
@@ -247,20 +248,63 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#rename(byte[], byte[])
+	 */
 	@Override
-	public void rename(byte[] oldName, byte[] newName) {
+	public void rename(final byte[] sourceKey, final byte[] targetKey) {
 
-		// TODO: check if we can do this using dump -> restore.
-		throw new UnsupportedOperationException("RENAME is not supported in cluster mode");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(sourceKey, targetKey)) {
+
+			try {
+				cluster.rename(sourceKey, targetKey);
+				return;
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		byte[] value = dump(sourceKey);
+
+		if (value != null && value.length > 0) {
+
+			restore(targetKey, 0, value);
+			del(sourceKey);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#renameNX(byte[], byte[])
+	 */
 	@Override
-	public Boolean renameNX(byte[] oldName, byte[] newName) {
+	public Boolean renameNX(final byte[] sourceKey, final byte[] targetKey) {
 
-		// TODO: check if we can do this using dump -> restore.
-		throw new UnsupportedOperationException("RENAMENX is not supported in cluster mode");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(sourceKey, targetKey)) {
+
+			try {
+				return JedisConverters.toBoolean(cluster.renamenx(sourceKey, targetKey));
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		byte[] value = dump(sourceKey);
+
+		if (value != null && value.length > 0 && !exists(targetKey)) {
+
+			restore(targetKey, 0, value);
+			del(sourceKey);
+			return Boolean.TRUE;
+		}
+		return Boolean.FALSE;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#expire(byte[], long)
+	 */
 	@Override
 	public Boolean expire(byte[] key, long seconds) {
 
@@ -274,17 +318,24 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#pExpire(byte[], long)
+	 */
 	@Override
 	public Boolean pExpire(final byte[] key, final long millis) {
 
-		return runClusterCommand(new JedisClusterCommand<Boolean>(getClusterConnectionHandler(), 1) {
-			@Override
-			public Boolean execute(Jedis connection) {
-				return JedisConverters.toBoolean(connection.pexpire(key, millis));
-			}
-		}, key);
+		try {
+			return JedisConverters.toBoolean(cluster.pexpire(key, millis));
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#expireAt(byte[], long)
+	 */
 	@Override
 	public Boolean expireAt(byte[] key, long unixTime) {
 
@@ -295,18 +346,24 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#pExpireAt(byte[], long)
+	 */
 	@Override
-	public Boolean pExpireAt(final byte[] key, final long unixTimeInMillis) {
+	public Boolean pExpireAt(byte[] key, long unixTimeInMillis) {
 
-		return runClusterCommand(new JedisClusterCommand<Boolean>(getClusterConnectionHandler(), 1) {
-
-			@Override
-			public Boolean execute(Jedis connection) {
-				return JedisConverters.toBoolean(connection.pexpire(key, unixTimeInMillis));
-			}
-		}, key);
+		try {
+			return JedisConverters.toBoolean(cluster.pexpireAt(key, unixTimeInMillis));
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#persist(byte[])
+	 */
 	@Override
 	public Boolean persist(byte[] key) {
 
@@ -317,11 +374,19 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#move(byte[], int)
+	 */
 	@Override
 	public Boolean move(byte[] key, int dbIndex) {
 		throw new UnsupportedOperationException("Cluster mode does not allow moving keys.");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#ttl(byte[])
+	 */
 	@Override
 	public Long ttl(byte[] key) {
 
@@ -332,18 +397,26 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#pTtl(byte[])
+	 */
 	@Override
 	public Long pTtl(final byte[] key) {
 
-		return runClusterCommand(new JedisClusterCommand<Long>(getClusterConnectionHandler(), 5) {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Long>() {
 
 			@Override
-			public Long execute(Jedis connection) {
-				return connection.pttl(key);
+			public Long doInCluster(Jedis client) {
+				return client.pttl(key);
 			}
-		}, key);
+		}, topologyProvider.getTopology().getKeyServingMasterNode(key));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#sort(byte[], org.springframework.data.redis.connection.SortParameters)
+	 */
 	@Override
 	public List<byte[]> sort(byte[] key, SortParameters params) {
 
@@ -354,25 +427,52 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#sort(byte[], org.springframework.data.redis.connection.SortParameters, byte[])
+	 */
 	@Override
 	public Long sort(byte[] key, SortParameters params, byte[] storeKey) {
 
-		// TODO: Maybe we could sort and then store using new key
-		throw new UnsupportedOperationException("Storing sort result is not supported in cluster mode");
+		List<byte[]> sorted = sort(key, params);
+		if (!CollectionUtils.isEmpty(sorted)) {
+
+			byte[][] arr = new byte[sorted.size()][];
+			switch (type(key)) {
+
+				case SET:
+					sAdd(storeKey, sorted.toArray(arr));
+					return 1L;
+				case LIST:
+					lPush(storeKey, sorted.toArray(arr));
+					return 1L;
+				default:
+					throw new IllegalArgumentException("sort and store is only supported for SET and LIST");
+			}
+		}
+		return 0L;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#dump(byte[])
+	 */
 	@Override
 	public byte[] dump(final byte[] key) {
 
-		return runClusterCommand(new JedisClusterCommand<byte[]>(getClusterConnectionHandler(), 5) {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<byte[]>() {
 
 			@Override
-			public byte[] execute(Jedis connection) {
-				return connection.dump(key);
+			public byte[] doInCluster(Jedis client) {
+				return client.dump(key);
 			}
-		}, key);
+		}, topologyProvider.getTopology().getKeyServingMasterNode(key));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#restore(byte[], long, byte[])
+	 */
 	@Override
 	public void restore(final byte[] key, final long ttlInMillis, final byte[] serializedValue) {
 
@@ -380,17 +480,20 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 			throw new UnsupportedOperationException("Jedis does not support ttlInMillis exceeding Integer.MAX_VALUE.");
 		}
 
-		runClusterCommand(new JedisClusterCommand<Void>(getClusterConnectionHandler(), 5) {
+		this.clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Void>() {
 
 			@Override
-			public Void execute(Jedis connection) {
-
-				connection.restore(key, Long.valueOf(ttlInMillis).intValue(), serializedValue);
+			public Void doInCluster(Jedis client) {
+				client.restore(key, Long.valueOf(ttlInMillis).intValue(), serializedValue);
 				return null;
 			}
-		}, key);
+		}, getClusterNodeForKey(key));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#get(byte[])
+	 */
 	@Override
 	public byte[] get(byte[] key) {
 
@@ -401,6 +504,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#getSet(byte[], byte[])
+	 */
 	@Override
 	public byte[] getSet(byte[] key, byte[] value) {
 
@@ -411,13 +518,35 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#mGet(byte[][])
+	 */
 	@Override
 	public List<byte[]> mGet(byte[]... keys) {
 
-		// TODO: we could fetch those one by one and combine the results in code.
-		throw new UnsupportedOperationException("MGET is not supported in cluster mode");
+		Assert.noNullElements(keys);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			return cluster.mget(keys);
+		}
+
+		Map<RedisClusterNode, byte[]> nodeResult = this.clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<byte[]>() {
+
+					@Override
+					public byte[] doInCluster(Jedis client, byte[] key) {
+						return client.get(key);
+					}
+				}, Arrays.asList(keys));
+
+		return new ArrayList<byte[]>(nodeResult.values());
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#set(byte[], byte[])
+	 */
 	@Override
 	public void set(byte[] key, byte[] value) {
 
@@ -428,6 +557,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#setNX(byte[], byte[])
+	 */
 	@Override
 	public Boolean setNX(byte[] key, byte[] value) {
 
@@ -438,6 +571,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#setEx(byte[], long, byte[])
+	 */
 	@Override
 	public void setEx(byte[] key, long seconds, byte[] value) {
 
@@ -452,6 +589,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#pSetEx(byte[], long, byte[])
+	 */
 	@Override
 	public void pSetEx(final byte[] key, final long milliseconds, final byte[] value) {
 
@@ -459,33 +600,51 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 			throw new IllegalArgumentException("Milliseconds have cannot exceed Integer.MAX_VALUE!");
 		}
 
-		runClusterCommand(new JedisClusterCommand<Void>(getClusterConnectionHandler(), 1) {
+		this.clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void execute(Jedis connection) {
-
-				connection.psetex(key, Long.valueOf(milliseconds).intValue(), value);
-				return null;
+			public String doInCluster(Jedis client) {
+				return client.psetex(key, milliseconds, value);
 			}
-		}, key);
+		}, topologyProvider.getTopology().getKeyServingMasterNode(key));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#mSet(java.util.Map)
+	 */
 	@Override
 	public void mSet(Map<byte[], byte[]> tuple) {
 
-		// TODO: Need to check this since it should be possible if key prefix is correct. see
-		// http://redis.io/topics/cluster-spec#multiple-keys-operations
-		throw new UnsupportedOperationException("MSET is not supported in cluster mode.");
+		Assert.notNull(tuple, "Tuple must not be null!");
+
+		for (Map.Entry<byte[], byte[]> entry : tuple.entrySet()) {
+			set(entry.getKey(), entry.getValue());
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#mSetNX(java.util.Map)
+	 */
 	@Override
 	public Boolean mSetNX(Map<byte[], byte[]> tuple) {
 
-		// TODO: Need to check this since it should be possible if key prefix is correct. see
-		// http://redis.io/topics/cluster-spec#multiple-keys-operations
-		throw new UnsupportedOperationException("MSETNX is not supported in cluster mode.");
+		Assert.notNull(tuple, "Tuple must not be null!");
+
+		boolean result = true;
+		for (Map.Entry<byte[], byte[]> entry : tuple.entrySet()) {
+			if (!setNX(entry.getKey(), entry.getValue()) && result) {
+				result = false;
+			}
+		}
+		return result;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#incr(byte[])
+	 */
 	@Override
 	public Long incr(byte[] key) {
 
@@ -496,6 +655,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#incrBy(byte[], long)
+	 */
 	@Override
 	public Long incrBy(byte[] key, long value) {
 
@@ -506,18 +669,24 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#incrBy(byte[], double)
+	 */
 	@Override
-	public Double incrBy(final byte[] key, final double value) {
+	public Double incrBy(byte[] key, double value) {
 
-		return runClusterCommand(new JedisClusterCommand<Double>(getClusterConnectionHandler(), 5) {
-
-			@Override
-			public Double execute(Jedis connection) {
-				return connection.incrByFloat(key, value);
-			}
-		}, key);
+		try {
+			return cluster.incrByFloat(key, value);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#decr(byte[])
+	 */
 	@Override
 	public Long decr(byte[] key) {
 
@@ -528,6 +697,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#decrBy(byte[], long)
+	 */
 	@Override
 	public Long decrBy(byte[] key, long value) {
 
@@ -538,6 +711,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#append(byte[], byte[])
+	 */
 	@Override
 	public Long append(byte[] key, byte[] value) {
 
@@ -548,6 +725,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#getRange(byte[], long, long)
+	 */
 	@Override
 	public byte[] getRange(byte[] key, long begin, long end) {
 
@@ -558,6 +739,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#setRange(byte[], byte[], long)
+	 */
 	@Override
 	public void setRange(byte[] key, byte[] value, long offset) {
 
@@ -615,6 +800,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		throw new UnsupportedOperationException("BITOP is not supported in cluster mode");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisStringCommands#strLen(byte[])
+	 */
 	@Override
 	public Long strLen(byte[] key) {
 
@@ -625,6 +814,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#rPush(byte[], byte[][])
+	 */
 	@Override
 	public Long rPush(byte[] key, byte[]... values) {
 
@@ -635,6 +828,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lPush(byte[], byte[][])
+	 */
 	@Override
 	public Long lPush(byte[] key, byte[]... values) {
 
@@ -645,6 +842,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#rPushX(byte[], byte[])
+	 */
 	@Override
 	public Long rPushX(byte[] key, byte[] value) {
 
@@ -655,6 +856,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lPushX(byte[], byte[])
+	 */
 	@Override
 	public Long lPushX(byte[] key, byte[] value) {
 
@@ -665,6 +870,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lLen(byte[])
+	 */
 	@Override
 	public Long lLen(byte[] key) {
 
@@ -675,6 +884,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lRange(byte[], long, long)
+	 */
 	@Override
 	public List<byte[]> lRange(byte[] key, long begin, long end) {
 
@@ -685,21 +898,24 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lTrim(byte[], long, long)
+	 */
 	@Override
 	public void lTrim(final byte[] key, final long begin, final long end) {
 
-		runClusterCommand(new JedisClusterCommand<Void>(getClusterConnectionHandler(), 5) {
-
-			@Override
-			public Void execute(Jedis connection) {
-
-				connection.ltrim(key, begin, end);
-				return null;
-			}
-		}, key);
-
+		try {
+			cluster.ltrim(key, begin, end);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lIndex(byte[], long)
+	 */
 	@Override
 	public byte[] lIndex(byte[] key, long index) {
 
@@ -710,6 +926,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lInsert(byte[], org.springframework.data.redis.connection.RedisListCommands.Position, byte[], byte[])
+	 */
 	@Override
 	public Long lInsert(byte[] key, Position where, byte[] pivot, byte[] value) {
 
@@ -720,6 +940,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lSet(byte[], long, byte[])
+	 */
 	@Override
 	public void lSet(byte[] key, long index, byte[] value) {
 
@@ -730,6 +954,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lRem(byte[], long, byte[])
+	 */
 	@Override
 	public Long lRem(byte[] key, long count, byte[] value) {
 
@@ -740,6 +968,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#lPop(byte[])
+	 */
 	@Override
 	public byte[] lPop(byte[] key) {
 
@@ -750,6 +982,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#rPop(byte[])
+	 */
 	@Override
 	public byte[] rPop(byte[] key) {
 
@@ -760,51 +996,108 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#bLPop(int, byte[][])
+	 */
 	@Override
-	public List<byte[]> bLPop(int timeout, byte[]... keys) {
+	public List<byte[]> bLPop(final int timeout, final byte[]... keys) {
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.blpop(timeout, keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		Map<RedisClusterNode, List<byte[]>> nodeResult = this.clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<List<byte[]>>() {
+
+					@Override
+					public List<byte[]> doInCluster(Jedis client, byte[] key) {
+						return client.blpop(timeout, key);
+					}
+				}, Arrays.asList(keys));
 
 		List<byte[]> result = new ArrayList<byte[]>();
-		try {
-			for (byte[] key : keys) {
-				result.addAll(JedisConverters.stringListToByteList().convert(
-						cluster.blpop(timeout, JedisConverters.toString(key))));
-			}
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
+		for (Collection<byte[]> partial : nodeResult.values()) {
+			result.addAll(partial);
 		}
 		return result;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#bRPop(int, byte[][])
+	 */
 	@Override
-	public List<byte[]> bRPop(int timeout, byte[]... keys) {
+	public List<byte[]> bRPop(final int timeout, byte[]... keys) {
+
+		Map<RedisClusterNode, List<byte[]>> nodeResult = this.clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<List<byte[]>>() {
+
+					@Override
+					public List<byte[]> doInCluster(Jedis client, byte[] key) {
+						return client.brpop(timeout, key);
+					}
+				}, Arrays.asList(keys));
 
 		List<byte[]> result = new ArrayList<byte[]>();
-		try {
-			for (byte[] key : keys) {
-
-				result.addAll(JedisConverters.stringListToByteList().convert(
-						cluster.brpop(timeout, JedisConverters.toString(key))));
-			}
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
+		for (Collection<byte[]> partial : nodeResult.values()) {
+			result.addAll(partial);
 		}
 		return result;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#rPopLPush(byte[], byte[])
+	 */
 	@Override
 	public byte[] rPopLPush(byte[] srcKey, byte[] dstKey) {
 
-		// TODO: this is only possible of both keys map to the same slot
-		throw new UnsupportedOperationException("RPOPLPUSH is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(srcKey, dstKey)) {
+			try {
+				return cluster.rpoplpush(srcKey, dstKey);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		byte[] val = lPop(srcKey);
+		lPush(dstKey, val);
+		return val;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisListCommands#bRPopLPush(int, byte[], byte[])
+	 */
 	@Override
 	public byte[] bRPopLPush(int timeout, byte[] srcKey, byte[] dstKey) {
 
-		// TODO: this is only possible of both keys map to the same slot
-		throw new UnsupportedOperationException("BRPOPLPUSH is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(srcKey, dstKey)) {
+			try {
+				return cluster.brpoplpush(srcKey, dstKey, timeout);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		List<byte[]> val = bRPop(timeout, srcKey);
+		if (!CollectionUtils.isEmpty(val)) {
+			lPush(dstKey, val.get(1));
+			return val.get(1);
+		}
+
+		return null;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sAdd(byte[], byte[][])
+	 */
 	@Override
 	public Long sAdd(byte[] key, byte[]... values) {
 
@@ -815,6 +1108,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sRem(byte[], byte[][])
+	 */
 	@Override
 	public Long sRem(byte[] key, byte[]... values) {
 
@@ -825,6 +1122,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sPop(byte[])
+	 */
 	@Override
 	public byte[] sPop(byte[] key) {
 		try {
@@ -834,13 +1135,33 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sMove(byte[], byte[], byte[])
+	 */
 	@Override
 	public Boolean sMove(byte[] srcKey, byte[] destKey, byte[] value) {
 
-		// TODO: Only possible if both map to the same slot
-		throw new UnsupportedOperationException("SMOVE is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(srcKey, destKey)) {
+			try {
+				return JedisConverters.toBoolean(cluster.smove(srcKey, destKey, value));
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		if (exists(srcKey)) {
+			if (sRem(srcKey, value) > 0 && !sIsMember(destKey, value)) {
+				return JedisConverters.toBoolean(sAdd(destKey, value));
+			}
+		}
+		return Boolean.FALSE;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sCard(byte[])
+	 */
 	@Override
 	public Long sCard(byte[] key) {
 
@@ -851,6 +1172,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sIsMember(byte[], byte[])
+	 */
 	@Override
 	public Boolean sIsMember(byte[] key, byte[] value) {
 
@@ -861,48 +1186,205 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sInter(byte[][])
+	 */
 	@Override
 	public Set<byte[]> sInter(byte[]... keys) {
 
-		// TODO: Only works when keys map to same slot
-		throw new UnsupportedOperationException("SINTER is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.sinter(keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		Map<RedisClusterNode, Set<byte[]>> nodeResult = this.clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<Set<byte[]>>() {
+
+					@Override
+					public Set<byte[]> doInCluster(Jedis client, byte[] key) {
+						return client.smembers(key);
+					}
+				}, Arrays.asList(keys));
+
+		ByteArraySet result = null;
+		for (Entry<RedisClusterNode, Set<byte[]>> entry : nodeResult.entrySet()) {
+
+			ByteArraySet tmp = new ByteArraySet(entry.getValue());
+			if (result == null) {
+				result = tmp;
+			} else {
+				result.retainAll(tmp);
+				if (result.isEmpty()) {
+					break;
+				}
+			}
+		}
+
+		if (result.isEmpty()) {
+			return Collections.emptySet();
+		}
+
+		return result.asRawSet();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sInterStore(byte[], byte[][])
+	 */
 	@Override
 	public Long sInterStore(byte[] destKey, byte[]... keys) {
 
-		// TODO: Only works when keys map to same slot
-		throw new UnsupportedOperationException("SINTERSTORE is not supported in cluster mode.");
+		byte[][] allKeys = new byte[keys.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(keys, 0, allKeys, 1, keys.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+			try {
+				return cluster.sinterstore(destKey, keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		Set<byte[]> result = sInter(keys);
+		if (result.isEmpty()) {
+			return 0L;
+		}
+		return sAdd(destKey, result.toArray(new byte[result.size()][]));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sUnion(byte[][])
+	 */
 	@Override
 	public Set<byte[]> sUnion(byte[]... keys) {
 
-		// TODO: Only works when keys map to same slot
-		throw new UnsupportedOperationException("SUNION is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.sunion(keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		Map<RedisClusterNode, Set<byte[]>> nodeResult = this.clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<Set<byte[]>>() {
+
+					@Override
+					public Set<byte[]> doInCluster(Jedis client, byte[] key) {
+						return client.smembers(key);
+					}
+				}, Arrays.asList(keys));
+
+		ByteArraySet result = new ByteArraySet();
+		for (Entry<RedisClusterNode, Set<byte[]>> entry : nodeResult.entrySet()) {
+			result.addAll(entry.getValue());
+		}
+
+		if (result.isEmpty()) {
+			return Collections.emptySet();
+		}
+
+		return result.asRawSet();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sUnionStore(byte[], byte[][])
+	 */
 	@Override
 	public Long sUnionStore(byte[] destKey, byte[]... keys) {
 
-		// TODO: Only works when keys map to same slot
-		throw new UnsupportedOperationException("SUNIONSTORE is not supported in cluster mode.");
+		byte[][] allKeys = new byte[keys.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(keys, 0, allKeys, 1, keys.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.sunionstore(destKey, keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		Set<byte[]> result = sUnion(keys);
+		if (result.isEmpty()) {
+			return 0L;
+		}
+		return sAdd(destKey, result.toArray(new byte[result.size()][]));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sDiff(byte[][])
+	 */
 	@Override
 	public Set<byte[]> sDiff(byte[]... keys) {
 
-		// TODO: Only works when keys map to same slot
-		throw new UnsupportedOperationException("SDIFF is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.sdiff(keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		byte[] source = keys[0];
+		byte[][] others = Arrays.copyOfRange(keys, 1, keys.length - 1);
+
+		ByteArraySet values = new ByteArraySet(sMembers(source));
+		Map<RedisClusterNode, Set<byte[]>> nodeResult = clusterCommandExecutor.executeMuliKeyCommand(
+				new JedisMultiKeyClusterCommandCallback<Set<byte[]>>() {
+
+					@Override
+					public Set<byte[]> doInCluster(Jedis client, byte[] key) {
+						return client.smembers(key);
+					}
+				}, Arrays.asList(others));
+
+		if (values.isEmpty()) {
+			return Collections.emptySet();
+		}
+
+		for (Set<byte[]> toSubstract : nodeResult.values()) {
+			values.removeAll(toSubstract);
+		}
+
+		return values.asRawSet();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sDiffStore(byte[], byte[][])
+	 */
 	@Override
 	public Long sDiffStore(byte[] destKey, byte[]... keys) {
 
-		// TODO: Only works when keys map to same slot
-		throw new UnsupportedOperationException("SDIFFSTORE is not supported in cluster mode.");
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+			try {
+				return cluster.sdiffstore(destKey, keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		Set<byte[]> diff = sDiff(keys);
+		if (diff.isEmpty()) {
+			return 0L;
+		}
+
+		return sAdd(destKey, diff.toArray(new byte[diff.size()][]));
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sMembers(byte[])
+	 */
 	@Override
 	public Set<byte[]> sMembers(byte[] key) {
 
@@ -913,6 +1395,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sRandMember(byte[])
+	 */
 	@Override
 	public byte[] sRandMember(byte[] key) {
 
@@ -923,6 +1409,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sRandMember(byte[], long)
+	 */
 	@Override
 	public List<byte[]> sRandMember(byte[] key, long count) {
 
@@ -937,6 +1427,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisSetCommands#sScan(byte[], org.springframework.data.redis.core.ScanOptions)
+	 */
 	@Override
 	public Cursor<byte[]> sScan(final byte[] key, ScanOptions options) {
 
@@ -953,6 +1447,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}.open();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zAdd(byte[], double, byte[])
+	 */
 	@Override
 	public Boolean zAdd(byte[] key, double score, byte[] value) {
 
@@ -970,6 +1468,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		throw new UnsupportedOperationException();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRem(byte[], byte[][])
+	 */
 	@Override
 	public Long zRem(byte[] key, byte[]... values) {
 
@@ -981,6 +1483,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zIncrBy(byte[], double, byte[])
+	 */
 	@Override
 	public Double zIncrBy(byte[] key, double increment, byte[] value) {
 		try {
@@ -990,6 +1496,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRank(byte[], byte[])
+	 */
 	@Override
 	public Long zRank(byte[] key, byte[] value) {
 
@@ -1000,6 +1510,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRank(byte[], byte[])
+	 */
 	@Override
 	public Long zRevRank(byte[] key, byte[] value) {
 
@@ -1010,6 +1524,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRange(byte[], long, long)
+	 */
 	@Override
 	public Set<byte[]> zRange(byte[] key, long begin, long end) {
 
@@ -1020,16 +1538,192 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range) {
+		return zRangeByScoreWithScores(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZRANGEBYSCOREWITHSCORES.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			if (limit != null) {
+				return JedisConverters.toTupleSet(cluster.zrangeByScoreWithScores(key, min, max, limit.getOffset(),
+						limit.getCount()));
+			}
+			return JedisConverters.toTupleSet(cluster.zrangeByScoreWithScores(key, min, max));
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<byte[]> zRevRangeByScore(byte[] key, Range range) {
+		return zRevRangeByScore(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<byte[]> zRevRangeByScore(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZREVRANGEBYSCORE.");
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			if (limit != null) {
+				return cluster.zrevrangeByScore(key, max, min, limit.getOffset(), limit.getCount());
+			}
+			return cluster.zrevrangeByScore(key, max, min);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range) {
+		return zRevRangeByScoreWithScores(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZREVRANGEBYSCOREWITHSCORES.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			if (limit != null) {
+				return JedisConverters.toTupleSet(cluster.zrevrangeByScoreWithScores(key, max, min, limit.getOffset(),
+						limit.getCount()));
+			}
+			return JedisConverters.toTupleSet(cluster.zrevrangeByScoreWithScores(key, max, min));
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zCount(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Long zCount(byte[] key, Range range) {
+
+		Assert.notNull(range, "Range cannot be null for ZCOUNT.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			return cluster.zcount(key, min, max);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRemRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Long zRemRangeByScore(byte[] key, Range range) {
+
+		Assert.notNull(range, "Range cannot be null for ZREMRANGEBYSCORE.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			return cluster.zremrangeByScore(key, min, max);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
+	@Override
+	public Set<byte[]> zRangeByScore(byte[] key, Range range) {
+		return zRangeByScore(key, range, null);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
+	@Override
+	public Set<byte[]> zRangeByScore(byte[] key, Range range, Limit limit) {
+
+		Assert.notNull(range, "Range cannot be null for ZRANGEBYSCORE.");
+
+		byte[] min = JedisConverters.boundaryToBytesForZRange(range.getMin(), JedisConverters.NEGATIVE_INFINITY_BYTES);
+		byte[] max = JedisConverters.boundaryToBytesForZRange(range.getMax(), JedisConverters.POSITIVE_INFINITY_BYTES);
+
+		try {
+			if (limit != null) {
+				return cluster.zrangeByScore(key, min, max, limit.getOffset(), limit.getCount());
+			}
+			return cluster.zrangeByScore(key, min, max);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByLex(byte[])
+	 */
 	@Override
 	public Set<byte[]> zRangeByLex(byte[] key) {
 		return zRangeByLex(key, Range.unbounded());
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByLex(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range)
+	 */
 	@Override
 	public Set<byte[]> zRangeByLex(byte[] key, Range range) {
 		return zRangeByLex(key, range, null);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByLex(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Range, org.springframework.data.redis.connection.RedisZSetCommands.Limit)
+	 */
 	@Override
 	public Set<byte[]> zRangeByLex(byte[] key, Range range, Limit limit) {
 
@@ -1048,6 +1742,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeWithScores(byte[], long, long)
+	 */
 	@Override
 	public Set<Tuple> zRangeWithScores(byte[] key, long begin, long end) {
 
@@ -1058,6 +1756,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], double, double)
+	 */
 	@Override
 	public Set<byte[]> zRangeByScore(byte[] key, double min, double max) {
 
@@ -1068,6 +1770,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], double, double)
+	 */
 	@Override
 	public Set<Tuple> zRangeByScoreWithScores(byte[] key, double min, double max) {
 
@@ -1078,6 +1784,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], double, double, long, long)
+	 */
 	@Override
 	public Set<byte[]> zRangeByScore(byte[] key, double min, double max, long offset, long count) {
 
@@ -1092,6 +1802,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScoreWithScores(byte[], double, double, long, long)
+	 */
 	@Override
 	public Set<Tuple> zRangeByScoreWithScores(byte[] key, double min, double max, long offset, long count) {
 
@@ -1107,6 +1821,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRange(byte[], long, long)
+	 */
 	@Override
 	public Set<byte[]> zRevRange(byte[] key, long begin, long end) {
 
@@ -1117,6 +1835,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeWithScores(byte[], long, long)
+	 */
 	@Override
 	public Set<Tuple> zRevRangeWithScores(byte[] key, long begin, long end) {
 
@@ -1127,6 +1849,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], double, double)
+	 */
 	@Override
 	public Set<byte[]> zRevRangeByScore(byte[] key, double min, double max) {
 
@@ -1137,6 +1863,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], double, double)
+	 */
 	@Override
 	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, double min, double max) {
 
@@ -1147,6 +1877,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScore(byte[], double, double, long, long)
+	 */
 	@Override
 	public Set<byte[]> zRevRangeByScore(byte[] key, double min, double max, long offset, long count) {
 
@@ -1161,6 +1895,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRevRangeByScoreWithScores(byte[], double, double, long, long)
+	 */
 	@Override
 	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, double min, double max, long offset, long count) {
 
@@ -1176,6 +1914,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zCount(byte[], double, double)
+	 */
 	@Override
 	public Long zCount(byte[] key, double min, double max) {
 
@@ -1186,6 +1928,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zCard(byte[])
+	 */
 	@Override
 	public Long zCard(byte[] key) {
 
@@ -1196,6 +1942,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zScore(byte[], byte[])
+	 */
 	@Override
 	public Double zScore(byte[] key, byte[] value) {
 
@@ -1206,6 +1956,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRemRange(byte[], long, long)
+	 */
 	@Override
 	public Long zRemRange(byte[] key, long begin, long end) {
 
@@ -1216,6 +1970,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRemRangeByScore(byte[], double, double)
+	 */
 	@Override
 	public Long zRemRangeByScore(byte[] key, double min, double max) {
 
@@ -1226,31 +1984,103 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zUnionStore(byte[], byte[][])
+	 */
 	@Override
 	public Long zUnionStore(byte[] destKey, byte[]... sets) {
-		throw new UnsupportedOperationException();
+
+		byte[][] allKeys = new byte[sets.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(sets, 0, allKeys, 1, sets.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+
+			try {
+				return cluster.zunionstore(destKey, sets);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		throw new IllegalArgumentException("ZUNIONSTORE can only be executed when all keys map to the same slot");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zUnionStore(byte[], org.springframework.data.redis.connection.RedisZSetCommands.Aggregate, int[], byte[][])
+	 */
 	@Override
 	public Long zUnionStore(byte[] destKey, Aggregate aggregate, int[] weights, byte[]... sets) {
-		throw new UnsupportedOperationException();
+
+		byte[][] allKeys = new byte[sets.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(sets, 0, allKeys, 1, sets.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+
+			ZParams zparams = new ZParams().weights(weights).aggregate(ZParams.Aggregate.valueOf(aggregate.name()));
+
+			try {
+				return cluster.zunionstore(destKey, zparams, sets);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		throw new IllegalArgumentException("ZUNIONSTORE can only be executed when all keys map to the same slot");
 	}
 
 	@Override
 	public Long zInterStore(byte[] destKey, byte[]... sets) {
-		throw new UnsupportedOperationException();
+
+		byte[][] allKeys = new byte[sets.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(sets, 0, allKeys, 1, sets.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+
+			try {
+				return cluster.zinterstore(destKey, sets);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		throw new IllegalArgumentException("ZINTERSTORE can only be executed when all keys map to the same slot");
 	}
 
 	@Override
 	public Long zInterStore(byte[] destKey, Aggregate aggregate, int[] weights, byte[]... sets) {
-		throw new UnsupportedOperationException();
+
+		byte[][] allKeys = new byte[sets.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(sets, 0, allKeys, 1, sets.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+
+			ZParams zparams = new ZParams().weights(weights).aggregate(ZParams.Aggregate.valueOf(aggregate.name()));
+
+			try {
+				return cluster.zinterstore(destKey, zparams, sets);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		throw new IllegalArgumentException("ZINTERSTORE can only be executed when all keys map to the same slot");
 	}
 
 	@Override
 	public Cursor<Tuple> zScan(byte[] key, ScanOptions options) {
-		throw new UnsupportedOperationException("this seems to be possible need to check cursor callback impl.");
+		throw new UnsupportedOperationException("Jedis does currently not support binary zscan command.");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], java.lang.String, java.lang.String)
+	 */
 	@Override
 	public Set<byte[]> zRangeByScore(byte[] key, String min, String max) {
 
@@ -1261,6 +2091,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisZSetCommands#zRangeByScore(byte[], java.lang.String, java.lang.String, long, long)
+	 */
 	@Override
 	public Set<byte[]> zRangeByScore(byte[] key, String min, String max, long offset, long count) {
 
@@ -1276,6 +2110,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hSet(byte[], byte[], byte[])
+	 */
 	@Override
 	public Boolean hSet(byte[] key, byte[] field, byte[] value) {
 
@@ -1286,6 +2124,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hSetNX(byte[], byte[], byte[])
+	 */
 	@Override
 	public Boolean hSetNX(byte[] key, byte[] field, byte[] value) {
 
@@ -1296,6 +2138,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hGet(byte[], byte[])
+	 */
 	@Override
 	public byte[] hGet(byte[] key, byte[] field) {
 
@@ -1306,6 +2152,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hMGet(byte[], byte[][])
+	 */
 	@Override
 	public List<byte[]> hMGet(byte[] key, byte[]... fields) {
 
@@ -1316,6 +2166,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hMSet(byte[], java.util.Map)
+	 */
 	@Override
 	public void hMSet(byte[] key, Map<byte[], byte[]> hashes) {
 
@@ -1326,6 +2180,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hIncrBy(byte[], byte[], long)
+	 */
 	@Override
 	public Long hIncrBy(byte[] key, byte[] field, long delta) {
 
@@ -1336,6 +2194,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hIncrBy(byte[], byte[], double)
+	 */
 	@Override
 	public Double hIncrBy(byte[] key, byte[] field, double delta) {
 		try {
@@ -1345,6 +2207,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hExists(byte[], byte[])
+	 */
 	@Override
 	public Boolean hExists(byte[] key, byte[] field) {
 
@@ -1355,6 +2221,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hDel(byte[], byte[][])
+	 */
 	@Override
 	public Long hDel(byte[] key, byte[]... fields) {
 
@@ -1365,6 +2235,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hLen(byte[])
+	 */
 	@Override
 	public Long hLen(byte[] key) {
 
@@ -1375,6 +2249,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hKeys(byte[])
+	 */
 	@Override
 	public Set<byte[]> hKeys(byte[] key) {
 
@@ -1385,6 +2263,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hVals(byte[])
+	 */
 	@Override
 	public List<byte[]> hVals(byte[] key) {
 
@@ -1395,6 +2277,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hGetAll(byte[])
+	 */
 	@Override
 	public Map<byte[], byte[]> hGetAll(byte[] key) {
 
@@ -1405,6 +2291,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisHashCommands#hScan(byte[], org.springframework.data.redis.core.ScanOptions)
+	 */
 	@Override
 	public Cursor<Entry<byte[], byte[]>> hScan(final byte[] key, ScanOptions options) {
 
@@ -1417,30 +2307,50 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}.open();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisTxCommands#multi()
+	 */
 	@Override
 	public void multi() {
 		throw new UnsupportedOperationException(
 				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisTxCommands#exec()
+	 */
 	@Override
 	public List<Object> exec() {
 		throw new UnsupportedOperationException(
 				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisTxCommands#discard()
+	 */
 	@Override
 	public void discard() {
 		throw new UnsupportedOperationException(
 				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisTxCommands#watch(byte[][])
+	 */
 	@Override
 	public void watch(byte[]... keys) {
 		throw new UnsupportedOperationException(
 				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisTxCommands#unwatch()
+	 */
 	@Override
 	public void unwatch() {
 		throw new UnsupportedOperationException(
@@ -1448,52 +2358,99 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisPubSubCommands#isSubscribed()
+	 */
 	@Override
 	public boolean isSubscribed() {
-		return false;
+		return (subscription != null && subscription.isAlive());
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisPubSubCommands#getSubscription()
+	 */
 	@Override
 	public Subscription getSubscription() {
-		throw new UnsupportedOperationException();
+		return subscription;
 	}
 
 	@Override
 	public Long publish(byte[] channel, byte[] message) {
-		throw new UnsupportedOperationException();
+		try {
+			return cluster.publish(channel, message);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
 	@Override
 	public void subscribe(MessageListener listener, byte[]... channels) {
-		throw new UnsupportedOperationException();
+
+		if (isSubscribed()) {
+			throw new RedisSubscribedConnectionException(
+					"Connection already subscribed; use the connection Subscription to cancel or add new channels");
+		}
+		try {
+			BinaryJedisPubSub jedisPubSub = new JedisMessageListener(listener);
+			subscription = new JedisSubscription(listener, jedisPubSub, channels, null);
+			cluster.subscribe(jedisPubSub, channels);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
 	@Override
 	public void pSubscribe(MessageListener listener, byte[]... patterns) {
-		throw new UnsupportedOperationException();
+
+		if (isSubscribed()) {
+			throw new RedisSubscribedConnectionException(
+					"Connection already subscribed; use the connection Subscription to cancel or add new channels");
+		}
+		try {
+			BinaryJedisPubSub jedisPubSub = new JedisMessageListener(listener);
+			subscription = new JedisSubscription(listener, jedisPubSub, null, patterns);
+			cluster.psubscribe(jedisPubSub, patterns);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnectionCommands#select(int)
+	 */
 	@Override
 	public void select(final int dbIndex) {
-		throw new UnsupportedOperationException();
+
+		if (dbIndex != 0) {
+			throw new InvalidDataAccessApiUsageException("Cannot SELECT non zero index in cluster mode.");
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnectionCommands#echo(byte[])
+	 */
 	@Override
 	public byte[] echo(final byte[] message) {
 
-		return clusterCommandExecutor.runCommandOnArbitraryNode(new JedisCommandCallback<byte[]>() {
-
-			@Override
-			public byte[] doInCluster(Jedis client) {
-				return client.echo(message);
-			}
-		});
+		try {
+			return cluster.echo(message);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnectionCommands#ping()
+	 */
 	@Override
 	public String ping() {
 
-		return !clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<String>() {
+		return !clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1503,10 +2460,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#ping(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public String ping(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1515,10 +2476,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#bgWriteAof()
+	 */
 	@Override
 	public void bgWriteAof() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1527,10 +2492,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#bgReWriteAof(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void bgReWriteAof(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1539,10 +2508,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#bgReWriteAof()
+	 */
 	@Override
 	public void bgReWriteAof() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1551,10 +2524,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#bgSave()
+	 */
 	@Override
 	public void bgSave() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1563,24 +2540,31 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#bgSave(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void bgSave(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
-				client.bgsave();
-				return null;
+			public String doInCluster(Jedis client) {
+				return client.bgsave();
 			}
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#lastSave()
+	 */
 	@Override
 	public Long lastSave() {
 
-		List<Long> result = new ArrayList<Long>(clusterCommandExecutor.runCommandOnAllNodes(
-				new JedisCommandCallback<Long>() {
+		List<Long> result = new ArrayList<Long>(clusterCommandExecutor.executeCommandOnAllNodes(
+				new JedisClusterCommandCallback<Long>() {
 
 					@Override
 					public Long doInCluster(Jedis client) {
@@ -1596,10 +2580,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		return result.get(0);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#lastSave(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public Long lastSave(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Long>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Long>() {
 
 			@Override
 			public Long doInCluster(Jedis client) {
@@ -1608,42 +2596,53 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#save()
+	 */
 	@Override
 	public void save() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
-				client.save();
-				return null;
+			public String doInCluster(Jedis client) {
+				return client.save();
 			}
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#save(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void save(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
 				return client.save();
 			}
 		}, node);
-
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#dbSize()
+	 */
 	@Override
 	public Long dbSize() {
 
-		Map<RedisClusterNode, Long> dbSizes = clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<Long>() {
+		Map<RedisClusterNode, Long> dbSizes = clusterCommandExecutor
+				.executeCommandOnAllNodes(new JedisClusterCommandCallback<Long>() {
 
-			@Override
-			public Long doInCluster(Jedis client) {
-				return client.dbSize();
-			}
-		});
+					@Override
+					public Long doInCluster(Jedis client) {
+						return client.dbSize();
+					}
+				});
 
 		if (CollectionUtils.isEmpty(dbSizes)) {
 			return 0L;
@@ -1656,10 +2655,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		return size;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#dbSize(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public Long dbSize(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Long>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Long>() {
 
 			@Override
 			public Long doInCluster(Jedis client) {
@@ -1668,10 +2671,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#flushDb()
+	 */
 	@Override
 	public void flushDb() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1680,10 +2687,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#flushDb(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void flushDb(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1692,10 +2703,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#flushAll()
+	 */
 	@Override
 	public void flushAll() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1704,10 +2719,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#flushAll(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void flushAll(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1716,12 +2735,16 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#info()
+	 */
 	@Override
 	public Properties info() {
 
 		Properties infos = new Properties();
 
-		infos.putAll(clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<Properties>() {
+		infos.putAll(clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<Properties>() {
 
 			@Override
 			public Properties doInCluster(Jedis client) {
@@ -1732,10 +2755,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		return infos;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#info(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public Properties info(RedisClusterNode node) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Properties>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Properties>() {
 
 			@Override
 			public Properties doInCluster(Jedis client) {
@@ -1744,41 +2771,72 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#info(java.lang.String)
+	 */
 	@Override
-	public Properties info(String section) {
-		throw new UnsupportedOperationException();
+	public Properties info(final String section) {
+
+		Properties infos = new Properties();
+
+		infos.putAll(clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<Properties>() {
+
+			@Override
+			public Properties doInCluster(Jedis client) {
+				return JedisConverters.toProperties(client.info(section));
+			}
+		}));
+
+		return infos;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#shutdown()
+	 */
 	@Override
 	public void shutdown() {
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
-				client.shutdown();
-				return null;
+			public String doInCluster(Jedis client) {
+				return client.shutdown();
 			}
 		});
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterConnection#shutdown(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void shutdown(RedisClusterNode node) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
-				client.shutdown();
-				return null;
+			public String doInCluster(Jedis client) {
+				return client.shutdown();
 			}
 		}, node);
 
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#shutdown(org.springframework.data.redis.connection.RedisServerCommands.ShutdownOption)
+	 */
 	@Override
 	public void shutdown(ShutdownOption option) {
-		throw new UnsupportedOperationException("TODO: can be done using eval and shutdown script");
+
+		if (option == null) {
+			shutdown();
+			return;
+		}
+
+		throw new UnsupportedOperationException("Shutdown with options is not supported.");
 	}
 
 	@Override
@@ -1793,8 +2851,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 	@Override
 	public void resetConfigStats() {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedOperationException("Cannot get config from multiple Nodes since return type does not match");
 	}
 
 	@Override
@@ -1822,7 +2879,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	public List<RedisClientInfo> getClientList() {
 
 		Map<RedisClusterNode, List<RedisClientInfo>> map = clusterCommandExecutor
-				.runCommandOnAllNodes(new JedisCommandCallback<List<RedisClientInfo>>() {
+				.executeCommandOnAllNodes(new JedisClusterCommandCallback<List<RedisClientInfo>>() {
 
 					@Override
 					public List<RedisClientInfo> doInCluster(Jedis client) {
@@ -1895,29 +2952,51 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 	@Override
 	public Long pfCount(byte[]... keys) {
-		throw new UnsupportedOperationException("well that would work if keys are on same slot");
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+
+			try {
+				return cluster.pfcount(keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+
+		}
+		throw new IllegalArgumentException("All keys must map to same slot for pfcount in cluster mode.");
 	}
 
 	@Override
 	public void pfMerge(byte[] destinationKey, byte[]... sourceKeys) {
-		throw new UnsupportedOperationException("well that would work if keys are on same slot");
+
+		byte[][] allKeys = new byte[sourceKeys.length + 1][];
+		allKeys[0] = destinationKey;
+		System.arraycopy(sourceKeys, 0, allKeys, 1, sourceKeys.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+			try {
+				cluster.pfmerge(destinationKey, sourceKeys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		throw new UnsupportedOperationException("ll keys must map to same slot for pfmerge in cluster mode.");
 	}
 
 	@Override
 	public Boolean exists(final byte[] key) {
-		return runClusterCommand(new JedisClusterCommand<Boolean>(getClusterConnectionHandler(), 5) {
 
-			@Override
-			public Boolean execute(Jedis connection) {
-				return connection.exists(key);
-			}
-		}, key);
+		try {
+			return cluster.exists(key);
+		} catch (Exception ex) {
+			throw convertJedisAccessException(ex);
+		}
 	}
 
 	@Override
 	public void clusterSetSlot(RedisClusterNode node, final int slot, final AddSlots mode) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Void>() {
 
 			@Override
 			public Void doInCluster(Jedis client) {
@@ -1932,7 +3011,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 		RedisClusterNode node = getClusterNodeForSlot(slot);
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<List<byte[]>>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<List<byte[]>>() {
 
 			@Override
 			public List<byte[]> doInCluster(Jedis client) {
@@ -1950,7 +3029,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	@Override
 	public void addSlots(RedisClusterNode node, final int... slots) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1966,7 +3045,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 		RedisClusterNode node = getClusterNodeForSlot(slot);
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Long>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Long>() {
 
 			@Override
 			public Long doInCluster(Jedis client) {
@@ -1980,7 +3059,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	@Override
 	public void deleteSlots(RedisClusterNode node, final int... slots) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -1996,7 +3075,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		Set<RedisClusterNode> nodes = getClusterNodes();
 		nodes.remove(node);
 
-		clusterCommandExecutor.runCommandAsyncOnNodes(new JedisCommandCallback<String>() {
+		clusterCommandExecutor.executeCommandAsyncOnNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(Jedis client) {
@@ -2011,7 +3090,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 		Assert.notNull(node, "Node to meet cluster must not be null!");
 
-		clusterCommandExecutor.runCommandOnAllNodes(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<Void>() {
 
 			@Override
 			public Void doInCluster(Jedis client) {
@@ -2025,7 +3104,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	@Override
 	public void clusterReplicate(final RedisClusterNode master, RedisClusterNode slave) {
 
-		clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Void>() {
 
 			@Override
 			public Void doInCluster(Jedis client) {
@@ -2044,7 +3123,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	@Override
 	public Integer getClusterSlotForKey(final byte[] key) {
 
-		return clusterCommandExecutor.runCommandOnArbitraryNode(new JedisCommandCallback<Integer>() {
+		return clusterCommandExecutor.executeCommandOnArbitraryNode(new JedisClusterCommandCallback<Integer>() {
 
 			@Override
 			public Integer doInCluster(Jedis client) {
@@ -2056,8 +3135,8 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	@Override
 	public RedisClusterNode getClusterNodeForSlot(int slot) {
 
-		for (RedisClusterNode node : getClusterNodes()) {
-			if (node.servesSlot(slot)) {
+		for (RedisClusterNode node : topologyProvider.getTopology().getSlotServingNodes(slot)) {
+			if (node.isMaster()) {
 				return node;
 			}
 		}
@@ -2067,20 +3146,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 	@Override
 	public Set<RedisClusterNode> getClusterNodes() {
-
-		return clusterCommandExecutor.runCommandOnArbitraryNode(new JedisCommandCallback<Set<RedisClusterNode>>() {
-
-			@Override
-			public Set<RedisClusterNode> doInCluster(Jedis client) {
-				return JedisConverters.toSetOfRedisClusterNodes(client.clusterNodes());
-			}
-		});
+		return topologyProvider.getTopology().getNodes();
 	}
 
 	@Override
 	public Set<RedisClusterNode> getClusterSlaves(final RedisClusterNode master) {
 
-		return clusterCommandExecutor.runCommandOnSingleNode(new JedisCommandCallback<Set<RedisClusterNode>>() {
+		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Set<RedisClusterNode>>() {
 
 			@Override
 			public Set<RedisClusterNode> doInCluster(Jedis client) {
@@ -2097,7 +3169,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	@Override
 	public ClusterInfo getClusterInfo() {
 
-		return clusterCommandExecutor.runCommandOnArbitraryNode(new JedisCommandCallback<ClusterInfo>() {
+		return clusterCommandExecutor.executeCommandOnArbitraryNode(new JedisClusterCommandCallback<ClusterInfo>() {
 
 			@Override
 			public ClusterInfo doInCluster(Jedis client) {
@@ -2110,28 +3182,8 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 	 * --> Little helpers to make it work
 	 */
 
-	private <T> T runClusterCommand(JedisClusterCommand<T> cmd, byte[] key) {
-		try {
-			return cmd.runBinary(key);
-		} catch (Exception ex) {
-			throw convertJedisAccessException(ex);
-		}
-	}
-
 	protected DataAccessException convertJedisAccessException(Exception ex) {
 		return EXCEPTION_TRANSLATION.translate(ex);
-	}
-
-	protected JedisPool getResourcePoolForSpecificNode(RedisNode node) {
-
-		notNull(node, "Cannot get Pool for 'null' node!");
-
-		Map<String, JedisPool> clusterNodes = cluster.getClusterNodes();
-		if (clusterNodes.containsKey(node.asString())) {
-			return clusterNodes.get(node.asString());
-		}
-
-		return null;
 	}
 
 	@Override
@@ -2146,70 +3198,124 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		throw new IllegalArgumentException(String.format("Node %s is unknown to cluster", node));
 	}
 
+	protected JedisPool getResourcePoolForSpecificNode(RedisNode node) {
+
+		Assert.notNull(node, "Cannot get Pool for 'null' node!");
+
+		Map<String, JedisPool> clusterNodes = cluster.getClusterNodes();
+		if (clusterNodes.containsKey(node.asString())) {
+			return clusterNodes.get(node.asString());
+		}
+
+		return null;
+	}
+
 	@Override
 	public void returnResourceForSpecificNode(RedisClusterNode node, Object client) {
 		getResourcePoolForSpecificNode(node).returnResource((Jedis) client);
 	}
 
-	private JedisClusterConnectionHandler getClusterConnectionHandler() {
-		return (JedisClusterConnectionHandler) getField(CONNECTION_HANDLER, cluster);
-	}
-
-	protected interface JedisCommandCallback<T> extends ClusterCommandCallback<Jedis, T> {}
-
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#close()
+	 */
 	@Override
-	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public void close() throws DataAccessException {
+		closed = true;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#isClosed()
+	 */
 	@Override
-	public Set<Tuple> zRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public boolean isClosed() {
+		return closed;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#getNativeConnection()
+	 */
 	@Override
-	public Set<byte[]> zRevRangeByScore(byte[] key, Range range) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public JedisCluster getNativeConnection() {
+		return cluster;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#isQueueing()
+	 */
 	@Override
-	public Set<byte[]> zRevRangeByScore(byte[] key, Range range, Limit limit) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public boolean isQueueing() {
+		return false;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#isPipelined()
+	 */
 	@Override
-	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public boolean isPipelined() {
+		return false;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#openPipeline()
+	 */
 	@Override
-	public Set<Tuple> zRevRangeByScoreWithScores(byte[] key, Range range, Limit limit) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public void openPipeline() {
+		throw new UnsupportedOperationException("Pipeline is currently not supported for JedisClusterConnection.");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#closePipeline()
+	 */
 	@Override
-	public Long zCount(byte[] key, Range range) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public List<Object> closePipeline() throws RedisPipelineException {
+		throw new UnsupportedOperationException("Pipeline is currently not supported for JedisClusterConnection.");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnection#getSentinelConnection()
+	 */
 	@Override
-	public Long zRemRangeByScore(byte[] key, Range range) {
-		throw new UnsupportedOperationException("TODO: implement me!");
+	public RedisSentinelConnection getSentinelConnection() {
+		throw new UnsupportedOperationException("Sentinel is currently not supported for JedisClusterConnection.");
 	}
 
-	@Override
-	public Set<byte[]> zRangeByScore(byte[] key, Range range) {
-		throw new UnsupportedOperationException("TODO: implement me!");
-	}
+	// @Override
+	// public ClusterTopology getTopology() {
+	// return this.topologyProvider.getTopology();
+	// }
 
-	@Override
-	public Set<byte[]> zRangeByScore(byte[] key, Range range, Limit limit) {
-		throw new UnsupportedOperationException("TODO: implement me!");
-	}
+	/**
+	 * {@link Jedis} specific {@link ClusterCommandCallback}.
+	 * 
+	 * @author Christoph Strobl
+	 * @param <T>
+	 * @since 1.7
+	 */
+	protected interface JedisClusterCommandCallback<T> extends ClusterCommandCallback<Jedis, T> {}
+
+	/**
+	 * {@link Jedis} specific {@link MultiKeyClusterCommandCallback}.
+	 *
+	 * @author Christoph Strobl
+	 * @param <T>
+	 * @since 1.7
+	 */
+	protected interface JedisMultiKeyClusterCommandCallback<T> extends MultiKeyClusterCommandCallback<Jedis, T> {}
 
 	static class JedisClusterTopologyProvider implements ClusterTopologyProvider {
 
+		private Object lock = new Object();
 		private final JedisCluster cluster;
+		private long time = 0;
+		private ClusterTopology cached;
 
 		public JedisClusterTopologyProvider(JedisCluster cluster) {
 			this.cluster = cluster;
@@ -2218,14 +3324,23 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 		@Override
 		public ClusterTopology getTopology() {
 
+			if (cached != null && time + 100 > System.currentTimeMillis()) {
+				return cached;
+			}
+
 			for (Entry<String, JedisPool> entry : cluster.getClusterNodes().entrySet()) {
 				Jedis jedis = entry.getValue().getResource();
 
 				try {
+					time = System.currentTimeMillis();
 					Set<RedisClusterNode> nodes = JedisConverters.toSetOfRedisClusterNodes(jedis.clusterNodes());
-					return new ClusterTopology(nodes);
+
+					synchronized (lock) {
+						cached = new ClusterTopology(nodes);
+					}
+					return cached;
 				} catch (Exception e) {
-					// ingnore for now
+					// just ignore this error and proceed with another node
 				} finally {
 					if (jedis != null) {
 						entry.getValue().returnResource(jedis);
@@ -2235,12 +3350,6 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterTo
 
 			throw new IllegalArgumentException("could not get cluster info");
 		}
-
-	}
-
-	@Override
-	public ClusterTopology getTopology() {
-		return this.topologyProvider.getTopology();
 	}
 
 }

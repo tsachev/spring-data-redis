@@ -18,30 +18,32 @@ package org.springframework.data.redis.connection;
 import java.util.List;
 
 /**
+ * Interface for the {@literal cluster} commands supported by Redis.
+ * 
  * @author Christoph Strobl
- * @since 1.6
+ * @since 1.7
  */
 public interface RedisClusterCommands {
 
 	/**
 	 * Retrieve cluster node information such as {@literal id}, {@literal host}, {@literal port} and {@literal slots}.
 	 * 
-	 * @return
+	 * @return never {@literal null}.
 	 */
 	Iterable<RedisClusterNode> getClusterNodes();
 
 	/**
 	 * Retrieve information about connected slaves for given master node.
 	 * 
-	 * @param node
-	 * @return
+	 * @param node must not be {@literal null}.
+	 * @return never {@literal null}.
 	 */
 	Iterable<RedisClusterNode> getClusterSlaves(RedisClusterNode master);
 
 	/**
 	 * Find the slot for a given {@code key}.
 	 * 
-	 * @param key
+	 * @param key must not be {@literal null}.
 	 * @return
 	 */
 	Integer getClusterSlotForKey(byte[] key);
@@ -57,7 +59,7 @@ public interface RedisClusterCommands {
 	/**
 	 * Find the {@link RedisNode} serving given {@literal key}.
 	 * 
-	 * @param key
+	 * @param key must not be {@literal null}.
 	 * @return
 	 */
 	RedisClusterNode getClusterNodeForKey(byte[] key);
@@ -72,7 +74,7 @@ public interface RedisClusterCommands {
 	/**
 	 * Assign slots to given {@link RedisNode}.
 	 * 
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 * @param slots
 	 */
 	void addSlots(RedisClusterNode node, int... slots);
@@ -88,7 +90,7 @@ public interface RedisClusterCommands {
 	/**
 	 * Remove slots from {@link RedisNode}.
 	 * 
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 * @param slots
 	 */
 	void deleteSlots(RedisClusterNode node, int... slots);
@@ -96,21 +98,21 @@ public interface RedisClusterCommands {
 	/**
 	 * Remove given {@literal node} from cluster.
 	 * 
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 */
 	void clusterForget(RedisClusterNode node);
 
 	/**
 	 * Add given {@literal node} to cluster.
 	 * 
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 */
 	void clusterMeet(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 * @param slot
-	 * @param mode
+	 * @param mode must not be{@literal null}.
 	 */
 	void clusterSetSlot(RedisClusterNode node, int slot, AddSlots mode);
 
@@ -118,7 +120,7 @@ public interface RedisClusterCommands {
 	 * Get {@literal keys} served by slot.
 	 * 
 	 * @param slot
-	 * @param count
+	 * @param count must not be {@literal null}.
 	 * @return
 	 */
 	List<byte[]> getKeysInSlot(int slot, Integer count);
@@ -126,8 +128,8 @@ public interface RedisClusterCommands {
 	/**
 	 * Assign a {@literal slave} to given {@literal master}.
 	 * 
-	 * @param master
-	 * @param slave
+	 * @param master must not be {@literal null}.
+	 * @param slave must not be {@literal null}.
 	 */
 	void clusterReplicate(RedisClusterNode master, RedisClusterNode slave);
 

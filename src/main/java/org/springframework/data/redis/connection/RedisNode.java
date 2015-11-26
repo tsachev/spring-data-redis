@@ -71,7 +71,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public String getMasterId() {
 		return masterId;
@@ -79,7 +79,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @param masterId
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public void setMasterId(String masterId) {
 		this.masterId = masterId;
@@ -87,7 +87,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public String getId() {
 		return id;
@@ -95,7 +95,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @param id
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public void setId(String id) {
 		this.id = id;
@@ -111,7 +111,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public NodeType getType() {
 		return type;
@@ -119,7 +119,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public boolean isMaster() {
 		return ObjectUtils.nullSafeEquals(NodeType.MASTER, getType());
@@ -127,7 +127,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @return
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public boolean isSlave() {
 		return ObjectUtils.nullSafeEquals(NodeType.SLAVE, getType());
@@ -176,7 +176,7 @@ public class RedisNode implements NamedNode {
 
 	/**
 	 * @author Christoph Strobl
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public enum NodeType {
 		MASTER, SLAVE

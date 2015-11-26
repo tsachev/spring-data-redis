@@ -13,22 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.springframework.data.redis.core;
+package org.springframework.data.redis;
 
-import java.util.Set;
-
-import org.springframework.data.redis.connection.RedisClusterNode;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 /**
  * @author Christoph Strobl
  * @since 1.7
  */
-public interface RedisClusterOperations<K, V> {
+public class ClusterStateFailureExeption extends DataAccessResourceFailureException {
 
-	Set<K> keys(RedisClusterNode node, byte[] pattern);
+	private static final long serialVersionUID = 333399051713240852L;
 
-	String ping(RedisClusterNode node);
+	public ClusterStateFailureExeption(String msg) {
+		super(msg);
+	}
 
-	K randomKey(RedisClusterNode node);
+	public ClusterStateFailureExeption(String msg, Throwable cause) {
+		super(msg, cause);
+	}
 
 }

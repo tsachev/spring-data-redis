@@ -155,7 +155,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 	 * to create a {@link JedisCluster}.
 	 * 
 	 * @param clusterConfig
-	 * @since 1.5
+	 * @since 1.7
 	 */
 	public JedisConnectionFactory(RedisClusterConfiguration clusterConfig) {
 		this.clusterConfig = clusterConfig;
@@ -166,7 +166,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 	 * to create a {@link JedisCluster}.
 	 * 
 	 * @param clusterConfig
-	 * @since 1.5
+	 * @since 1.7
 	 */
 	public JedisConnectionFactory(RedisClusterConfiguration clusterConfig, JedisPoolConfig poolConfig) {
 		this.clusterConfig = clusterConfig;
@@ -273,7 +273,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 	 * @param clusterConfig must not be {@literal null}.
 	 * @param poolConfig can be {@literal null}.
 	 * @return
-	 * @since 1.5
+	 * @since 1.7
 	 */
 	protected JedisCluster createCluster(RedisClusterConfiguration clusterConfig, GenericObjectPoolConfig poolConfig) {
 

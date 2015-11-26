@@ -118,7 +118,7 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 	 * applied to create a {@link RedisClusterClient}.
 	 * 
 	 * @param clusterConfig
-	 * @since 1.6
+	 * @since 1.7
 	 */
 	public LettuceConnectionFactory(RedisClusterConfiguration clusterConfig) {
 		this.clusterConfiguration = clusterConfig;
@@ -459,7 +459,7 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 	}
 
 	/**
-	 * @return since 1.6
+	 * @return since 1.7
 	 */
 	public boolean isClusterAware() {
 		return clusterConfiguration != null;

@@ -25,7 +25,7 @@ import org.springframework.util.Assert;
  * {@code cluster_slots_assigned} provided by the {@code CLUSTER INFO} command.
  * 
  * @author Christoph Strobl
- * @since 1.6
+ * @since 1.7
  */
 public class ClusterInfo {
 

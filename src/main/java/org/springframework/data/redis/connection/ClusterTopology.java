@@ -19,21 +19,42 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+import org.springframework.data.redis.ClusterStateFailureExeption;
+import org.springframework.util.Assert;
+
 /**
+ * {@link ClusterTopology} holds snapshot like information about {@link RedisClusterNode}s.
+ * 
  * @author Christoph Strobl
+ * @since 1.7
  */
 public class ClusterTopology {
 
 	private final Set<RedisClusterNode> nodes;
 
+	/**
+	 * Creates new instance of {@link ClusterTopology}.
+	 * 
+	 * @param nodes can be {@literal null}.
+	 */
 	public ClusterTopology(Set<RedisClusterNode> nodes) {
 		this.nodes = nodes != null ? nodes : Collections.<RedisClusterNode> emptySet();
 	}
 
+	/**
+	 * Get all {@link RedisClusterNode}s.
+	 * 
+	 * @return never {@literal null}.
+	 */
 	public Set<RedisClusterNode> getNodes() {
 		return Collections.unmodifiableSet(nodes);
 	}
 
+	/**
+	 * Get all master nodes in cluster.
+	 * 
+	 * @return never {@literal null}.
+	 */
 	public Set<RedisClusterNode> getMasterNodes() {
 
 		Set<RedisClusterNode> masterNodes = new LinkedHashSet<RedisClusterNode>(nodes.size());
@@ -45,4 +66,51 @@ public class ClusterTopology {
 		return masterNodes;
 	}
 
+	/**
+	 * Get the {@link RedisClusterNode}s (master and slave) serving s specific slot.
+	 * 
+	 * @param slot
+	 * @return never {@literal null}.
+	 */
+	public Set<RedisClusterNode> getSlotServingNodes(int slot) {
+
+		Set<RedisClusterNode> slotServingNodes = new LinkedHashSet<RedisClusterNode>(nodes.size());
+		for (RedisClusterNode node : nodes) {
+			if (node.servesSlot(slot)) {
+				slotServingNodes.add(node);
+			}
+		}
+		return slotServingNodes;
+	}
+
+	/**
+	 * Get the {@link RedisClusterNode} that is the current master serving the given key.
+	 * 
+	 * @param key must not be {@literal null}.
+	 * @return
+	 * @throws ClusterStateFailureExeption
+	 */
+	public RedisClusterNode getKeyServingMasterNode(byte[] key) {
+
+		Assert.notNull(key, "Key for node lookup must not be null!");
+
+		int slot = ClusterSlotHashUtil.calculateSlot(key);
+		for (RedisClusterNode node : nodes) {
+			if (node.isMaster() && node.servesSlot(slot)) {
+				return node;
+			}
+		}
+		throw new ClusterStateFailureExeption(String.format("Could not find master node serving slot %s for key '%s',",
+				slot, key));
+	}
+
+	/**
+	 * @param key must not be {@literal null}.
+	 * @return {@literal null}.
+	 */
+	public Set<RedisClusterNode> getKeyServingNodes(byte[] key) {
+
+		Assert.notNull(key, "Key must not be null for Cluster Node lookup.");
+		return getSlotServingNodes(ClusterSlotHashUtil.calculateSlot(key));
+	}
 }

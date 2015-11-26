@@ -23,7 +23,7 @@ import org.springframework.data.redis.connection.RedisClusterNode;
 
 /**
  * @author Christoph Strobl
- * @since 1.6
+ * @since 1.7
  * @param <K>
  * @param <V>
  */
