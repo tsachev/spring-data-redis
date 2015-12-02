@@ -31,7 +31,7 @@ import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
-import org.springframework.data.redis.FallbackExceptionTranslationStrategy;
+import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.connection.ClusterCommandExecutor;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.ClusterCommandCallback;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.MultiKeyClusterCommandCallback;
@@ -76,7 +76,7 @@ import redis.clients.jedis.ZParams;
  */
 public class JedisClusterConnection implements RedisClusterConnection, ClusterNodeResourceProvider {
 
-	private static final ExceptionTranslationStrategy EXCEPTION_TRANSLATION = new FallbackExceptionTranslationStrategy(
+	private static final ExceptionTranslationStrategy EXCEPTION_TRANSLATION = new PassThroughExceptionTranslationStrategy(
 			JedisConverters.exceptionConverter());
 
 	private final JedisCluster cluster;
@@ -206,11 +206,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		}, node);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisKeyCommands#scan(org.springframework.data.redis.core.ScanOptions)
+	 */
 	@Override
 	public Cursor<byte[]> scan(ScanOptions options) {
-
-		// TODO: add scan(RedisNode node, ScanOptions options) since we can scan keys at a single node.
-		throw new UnsupportedOperationException("Scan is not supported accros multiple nodes within a cluster");
+		throw new InvalidDataAccessApiUsageException("Scan is not supported accros multiple nodes within a cluster");
 	}
 
 	/*
@@ -623,11 +625,20 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 * @see org.springframework.data.redis.connection.RedisStringCommands#mSet(java.util.Map)
 	 */
 	@Override
-	public void mSet(Map<byte[], byte[]> tuple) {
+	public void mSet(Map<byte[], byte[]> tuples) {
 
-		Assert.notNull(tuple, "Tuple must not be null!");
+		Assert.notNull(tuples, "Tuples must not be null!");
 
-		for (Map.Entry<byte[], byte[]> entry : tuple.entrySet()) {
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(tuples.keySet().toArray(new byte[tuples.keySet().size()][]))) {
+			try {
+				cluster.mset(JedisConverters.toByteArrays(tuples));
+				return;
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		for (Map.Entry<byte[], byte[]> entry : tuples.entrySet()) {
 			set(entry.getKey(), entry.getValue());
 		}
 	}
@@ -637,12 +648,20 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 * @see org.springframework.data.redis.connection.RedisStringCommands#mSetNX(java.util.Map)
 	 */
 	@Override
-	public Boolean mSetNX(Map<byte[], byte[]> tuple) {
+	public Boolean mSetNX(Map<byte[], byte[]> tuples) {
 
-		Assert.notNull(tuple, "Tuple must not be null!");
+		Assert.notNull(tuples, "Tuple must not be null!");
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(tuples.keySet().toArray(new byte[tuples.keySet().size()][]))) {
+			try {
+				return JedisConverters.toBoolean(cluster.msetnx(JedisConverters.toByteArrays(tuples)));
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
 
 		boolean result = true;
-		for (Map.Entry<byte[], byte[]> entry : tuple.entrySet()) {
+		for (Map.Entry<byte[], byte[]> entry : tuples.entrySet()) {
 			if (!setNX(entry.getKey(), entry.getValue()) && result) {
 				result = false;
 			}
@@ -1029,11 +1048,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 					}
 				}, Arrays.asList(keys));
 
-		List<byte[]> result = new ArrayList<byte[]>();
-		for (Collection<byte[]> partial : nodeResult.values()) {
-			result.addAll(partial);
+		for (List<byte[]> partial : nodeResult.values()) {
+			if (!partial.isEmpty()) {
+				return partial;
+			}
 		}
-		return result;
+
+		return Collections.emptyList();
 	}
 
 	/*
@@ -1052,11 +1073,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 					}
 				}, Arrays.asList(keys));
 
-		List<byte[]> result = new ArrayList<byte[]>();
-		for (Collection<byte[]> partial : nodeResult.values()) {
-			result.addAll(partial);
+		for (List<byte[]> partial : nodeResult.values()) {
+			if (!partial.isEmpty()) {
+				return partial;
+			}
 		}
-		return result;
+
+		return Collections.emptyList();
 	}
 
 	/*
@@ -1074,7 +1097,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 		}
 
-		byte[] val = lPop(srcKey);
+		byte[] val = rPop(srcKey);
 		lPush(dstKey, val);
 		return val;
 	}
@@ -1374,7 +1397,11 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	@Override
 	public Long sDiffStore(byte[] destKey, byte[]... keys) {
 
-		if (ClusterSlotHashUtil.isSameSlotForAllKeys(keys)) {
+		byte[][] allKeys = new byte[keys.length + 1][];
+		allKeys[0] = destKey;
+		System.arraycopy(keys, 0, allKeys, 1, keys.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
 			try {
 				return cluster.sdiffstore(destKey, keys);
 			} catch (Exception ex) {
@@ -2949,6 +2976,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		throw new UnsupportedOperationException();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.HyperLogLogCommands#pfAdd(byte[], byte[][])
+	 */
 	@Override
 	public Long pfAdd(byte[] key, byte[]... values) {
 
@@ -2959,6 +2990,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.HyperLogLogCommands#pfCount(byte[][])
+	 */
 	@Override
 	public Long pfCount(byte[]... keys) {
 
@@ -2971,9 +3006,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 
 		}
-		throw new IllegalArgumentException("All keys must map to same slot for pfcount in cluster mode.");
+		throw new InvalidDataAccessApiUsageException("All keys must map to same slot for pfcount in cluster mode.");
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.HyperLogLogCommands#pfMerge(byte[], byte[][])
+	 */
 	@Override
 	public void pfMerge(byte[] destinationKey, byte[]... sourceKeys) {
 
@@ -2984,12 +3023,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
 			try {
 				cluster.pfmerge(destinationKey, sourceKeys);
+				return;
 			} catch (Exception ex) {
 				throw convertJedisAccessException(ex);
 			}
 		}
 
-		throw new UnsupportedOperationException("ll keys must map to same slot for pfmerge in cluster mode.");
+		throw new InvalidDataAccessApiUsageException("All keys must map to same slot for pfmerge in cluster mode.");
 	}
 
 	@Override
@@ -3295,11 +3335,6 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	public RedisSentinelConnection getSentinelConnection() {
 		throw new UnsupportedOperationException("Sentinel is currently not supported for JedisClusterConnection.");
 	}
-
-	// @Override
-	// public ClusterTopology getTopology() {
-	// return this.topologyProvider.getTopology();
-	// }
 
 	/**
 	 * {@link Jedis} specific {@link ClusterCommandCallback}.

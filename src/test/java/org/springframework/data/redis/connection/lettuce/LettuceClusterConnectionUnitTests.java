@@ -38,7 +38,9 @@ import org.springframework.util.ObjectUtils;
 
 import com.lambdaworks.redis.RedisAsyncConnection;
 import com.lambdaworks.redis.RedisConnection;
+import com.lambdaworks.redis.RedisURI;
 import com.lambdaworks.redis.cluster.RedisClusterClient;
+import com.lambdaworks.redis.cluster.models.partitions.Partitions;
 
 /**
  * @author Christoph Strobl
@@ -86,6 +88,28 @@ public class LettuceClusterConnectionUnitTests {
 
 	@Before
 	public void setUp() {
+		Partitions partitions = new Partitions();
+
+		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition1 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
+		partition1.setNodeId(CLUSTER_NODE_1.getId());
+		partition1.setConnected(true);
+		partition1.setUri(RedisURI.create("redis://" + CLUSTER_NODE_1_HOST + ":" + CLUSTER_NODE_1_PORT));
+
+		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition2 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
+		partition2.setNodeId(CLUSTER_NODE_1.getId());
+		partition2.setConnected(true);
+		partition2.setUri(RedisURI.create("redis://" + CLUSTER_NODE_2_HOST + ":" + CLUSTER_NODE_2_PORT));
+
+		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition3 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
+		partition3.setNodeId(CLUSTER_NODE_1.getId());
+		partition3.setConnected(true);
+		partition3.setUri(RedisURI.create("redis://" + CLUSTER_NODE_3_HOST + ":" + CLUSTER_NODE_3_PORT));
+
+		partitions.addPartition(partition1);
+		partitions.addPartition(partition2);
+		partitions.addPartition(partition3);
+
+		when(clusterMock.getPartitions()).thenReturn(partitions);
 
 		connection = new LettuceClusterConnection(clusterMock) {
 

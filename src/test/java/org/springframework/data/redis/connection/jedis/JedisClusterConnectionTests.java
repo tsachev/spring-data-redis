@@ -17,6 +17,7 @@ package org.springframework.data.redis.connection.jedis;
 
 import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
+import static org.springframework.data.redis.connection.ClusterTestVariables.*;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -33,6 +34,8 @@ import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.ClusterConnectionTests;
+import org.springframework.data.redis.connection.ClusterSlotHashUtil;
 import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.connection.DefaultSortParameters;
 import org.springframework.data.redis.connection.DefaultTuple;
@@ -53,17 +56,10 @@ import redis.clients.jedis.exceptions.JedisDataException;
 /**
  * @author Christoph Strobl
  */
-public class JedisClusterConnectionTests {
+public class JedisClusterConnectionTests implements ClusterConnectionTests {
 
-	static final List<HostAndPort> CLUSTER_NODES = Arrays.asList(new HostAndPort("127.0.0.1", 7379), new HostAndPort(
-			"127.0.0.1", 7380), new HostAndPort("127.0.0.1", 7381));
-
-	static final String KEY_1 = "key1";
-	static final String KEY_2 = "key2";
-	static final String KEY_3 = "key3";
-
-	static final String SAME_SLOT_KEY_1 = "key8";
-	static final String SAME_SLOT_KEY_2 = "key2290";
+	static final List<HostAndPort> CLUSTER_NODES = Arrays.asList(new HostAndPort(CLUSTER_HOST, MASTER_NODE_1_PORT),
+			new HostAndPort(CLUSTER_HOST, MASTER_NODE_2_PORT), new HostAndPort(CLUSTER_HOST, MASTER_NODE_3_PORT));
 
 	static final byte[] KEY_1_BYTES = JedisConverters.toBytes(KEY_1);
 	static final byte[] KEY_2_BYTES = JedisConverters.toBytes(KEY_2);
@@ -71,10 +67,7 @@ public class JedisClusterConnectionTests {
 
 	static final byte[] SAME_SLOT_KEY_1_BYTES = JedisConverters.toBytes(SAME_SLOT_KEY_1);
 	static final byte[] SAME_SLOT_KEY_2_BYTES = JedisConverters.toBytes(SAME_SLOT_KEY_2);
-
-	static final String VALUE_1 = "value1";
-	static final String VALUE_2 = "value2";
-	static final String VALUE_3 = "value3";
+	static final byte[] SAME_SLOT_KEY_3_BYTES = JedisConverters.toBytes(SAME_SLOT_KEY_3);
 
 	static final byte[] VALUE_1_BYTES = JedisConverters.toBytes(VALUE_1);
 	static final byte[] VALUE_2_BYTES = JedisConverters.toBytes(VALUE_2);
@@ -140,11 +133,25 @@ public class JedisClusterConnectionTests {
 		nativeConnection.set(KEY_1, VALUE_1);
 		nativeConnection.set(KEY_2, VALUE_2);
 
-		clusterConnection.del(KEY_1_BYTES);
-		clusterConnection.del(KEY_2_BYTES);
+		clusterConnection.del(KEY_1_BYTES, KEY_2_BYTES);
 
 		assertThat(nativeConnection.get(KEY_1), nullValue());
 		assertThat(nativeConnection.get(KEY_2), nullValue());
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void delShouldRemoveMultipleKeysOnSameSlotCorrectly() {
+
+		nativeConnection.set(SAME_SLOT_KEY_1, VALUE_1);
+		nativeConnection.set(SAME_SLOT_KEY_2, VALUE_2);
+
+		clusterConnection.del(SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_1), nullValue());
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_2), nullValue());
 	}
 
 	/**
@@ -228,6 +235,20 @@ public class JedisClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
+	public void renameSameKeysOnSameSlot() {
+
+		nativeConnection.set(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES);
+
+		clusterConnection.rename(SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.exists(SAME_SLOT_KEY_1_BYTES), is(false));
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_2_BYTES), is(VALUE_1_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
 	public void renameNXWhenTargetKeyDoesNotExist() {
 
 		nativeConnection.set(KEY_1_BYTES, VALUE_1_BYTES);
@@ -251,6 +272,20 @@ public class JedisClusterConnectionTests {
 
 		assertThat(nativeConnection.get(KEY_1_BYTES), is(VALUE_1_BYTES));
 		assertThat(nativeConnection.get(KEY_2_BYTES), is(VALUE_2_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void renameNXWhenOnSameSlot() {
+
+		nativeConnection.set(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES);
+
+		assertThat(clusterConnection.renameNX(SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES), is(Boolean.TRUE));
+
+		assertThat(nativeConnection.exists(SAME_SLOT_KEY_1_BYTES), is(false));
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_2_BYTES), is(VALUE_1_BYTES));
 	}
 
 	/**
@@ -354,14 +389,6 @@ public class JedisClusterConnectionTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
-	@Test(expected = UnsupportedOperationException.class)
-	public void moveShouldThrowExeption() {
-		clusterConnection.move("".getBytes(), 2);
-	}
-
-	/**
-	 * @see DATAREDIS-315
-	 */
 	@Test
 	public void ttlShouldReturnMinusTwoWhenKeyDoesNotExist() {
 		assertThat(clusterConnection.ttl(KEY_1_BYTES), is(-2L));
@@ -382,7 +409,7 @@ public class JedisClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void ttlShouldReturValueCorrectly() {
+	public void ttlShouldReturnValueCorrectly() {
 
 		nativeConnection.set(KEY_1, VALUE_1);
 		nativeConnection.expire(KEY_1, 5);
@@ -580,7 +607,23 @@ public class JedisClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void mSetShouldWork() {
+	public void mSetShouldWorkWhenKeysMapToSameSlot() {
+
+		Map<byte[], byte[]> map = new LinkedHashMap<byte[], byte[]>();
+		map.put(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES);
+		map.put(SAME_SLOT_KEY_2_BYTES, VALUE_2_BYTES);
+
+		clusterConnection.mSet(map);
+
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_1), is(VALUE_1));
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_2), is(VALUE_2));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void mSetShouldWorkWhenKeysDoNotMapToSameSlot() {
 
 		Map<byte[], byte[]> map = new LinkedHashMap<byte[], byte[]>();
 		map.put(KEY_1_BYTES, VALUE_1_BYTES);
@@ -623,6 +666,22 @@ public class JedisClusterConnectionTests {
 
 		assertThat(nativeConnection.get(KEY_1), is(VALUE_1));
 		assertThat(nativeConnection.get(KEY_2), is(VALUE_3));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void mSetNXShouldWorkForOnSameSlotKeys() {
+
+		Map<byte[], byte[]> map = new LinkedHashMap<byte[], byte[]>();
+		map.put(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES);
+		map.put(SAME_SLOT_KEY_2_BYTES, VALUE_2_BYTES);
+
+		assertThat(clusterConnection.mSetNX(map), is(true));
+
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_1), is(VALUE_1));
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_2), is(VALUE_2));
 	}
 
 	/**
@@ -876,7 +935,19 @@ public class JedisClusterConnectionTests {
 		nativeConnection.lpush(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
 		nativeConnection.lpush(KEY_2_BYTES, VALUE_3_BYTES);
 
-		assertThat(clusterConnection.bLPop(100, KEY_1_BYTES, KEY_2_BYTES).size(), is(4));
+		assertThat(clusterConnection.bLPop(100, KEY_1_BYTES, KEY_2_BYTES).size(), is(2));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void blPopShouldPopElementCorectlyWhenKeyOnSameSlot() {
+
+		nativeConnection.lpush(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+		nativeConnection.lpush(SAME_SLOT_KEY_2_BYTES, VALUE_3_BYTES);
+
+		assertThat(clusterConnection.bLPop(100, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES).size(), is(2));
 	}
 
 	/**
@@ -888,7 +959,19 @@ public class JedisClusterConnectionTests {
 		nativeConnection.lpush(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
 		nativeConnection.lpush(KEY_2_BYTES, VALUE_3_BYTES);
 
-		assertThat(clusterConnection.bRPop(100, KEY_1_BYTES, KEY_2_BYTES).size(), is(4));
+		assertThat(clusterConnection.bRPop(100, KEY_1_BYTES, KEY_2_BYTES).size(), is(2));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void brPopShouldPopElementCorectlyWhenKeyOnSameSlot() {
+
+		nativeConnection.lpush(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+		nativeConnection.lpush(SAME_SLOT_KEY_2_BYTES, VALUE_3_BYTES);
+
+		assertThat(clusterConnection.bRPop(100, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES).size(), is(2));
 	}
 
 	/**
@@ -899,8 +982,20 @@ public class JedisClusterConnectionTests {
 
 		nativeConnection.lpush(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
 
-		assertThat(clusterConnection.rPopLPush(KEY_1_BYTES, KEY_2_BYTES), is(VALUE_2_BYTES));
+		assertThat(clusterConnection.rPopLPush(KEY_1_BYTES, KEY_2_BYTES), is(VALUE_1_BYTES));
 		assertThat(nativeConnection.exists(KEY_2_BYTES), is(true));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void rPopLPushShouldWorkWhenKeysOnSameSlot() {
+
+		nativeConnection.lpush(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+
+		assertThat(clusterConnection.rPopLPush(SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES), is(VALUE_1_BYTES));
+		assertThat(nativeConnection.exists(SAME_SLOT_KEY_2_BYTES), is(true));
 	}
 
 	/**
@@ -911,8 +1006,20 @@ public class JedisClusterConnectionTests {
 
 		nativeConnection.lpush(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
 
-		assertThat(clusterConnection.rPopLPush(KEY_1_BYTES, KEY_2_BYTES), is(VALUE_2_BYTES));
+		assertThat(clusterConnection.bRPopLPush(0, KEY_1_BYTES, KEY_2_BYTES), is(VALUE_1_BYTES));
 		assertThat(nativeConnection.exists(KEY_2_BYTES), is(true));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void bRPopLPushShouldWorkOnSameSlotKeys() {
+
+		nativeConnection.lpush(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+
+		assertThat(clusterConnection.bRPopLPush(0, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES), is(VALUE_1_BYTES));
+		assertThat(nativeConnection.exists(SAME_SLOT_KEY_2_BYTES), is(true));
 	}
 
 	/**
@@ -1041,6 +1148,20 @@ public class JedisClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
+	public void sInterStoreShouldWorkForKeysMappingToSameSlot() {
+
+		nativeConnection.sadd(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+		nativeConnection.sadd(SAME_SLOT_KEY_2_BYTES, VALUE_2_BYTES, VALUE_3_BYTES);
+
+		clusterConnection.sInterStore(SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.smembers(SAME_SLOT_KEY_3_BYTES), hasItem(VALUE_2_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
 	public void sInterStoreShouldWorkForKeysNotMappingToSameSlot() {
 
 		nativeConnection.sadd(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
@@ -1055,6 +1176,19 @@ public class JedisClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
+	public void sUnionShouldWorkForKeysMappingToSameSlot() {
+
+		nativeConnection.sadd(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+		nativeConnection.sadd(SAME_SLOT_KEY_2_BYTES, VALUE_2_BYTES, VALUE_3_BYTES);
+
+		assertThat(clusterConnection.sUnion(SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES),
+				hasItems(VALUE_1_BYTES, VALUE_2_BYTES, VALUE_3_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
 	public void sUnionShouldWorkForKeysNotMappingToSameSlot() {
 
 		nativeConnection.sadd(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
@@ -1062,6 +1196,20 @@ public class JedisClusterConnectionTests {
 
 		assertThat(clusterConnection.sUnion(KEY_1_BYTES, KEY_2_BYTES),
 				hasItems(VALUE_1_BYTES, VALUE_2_BYTES, VALUE_3_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void sUnionStoreShouldWorkForKeysMappingToSameSlot() {
+
+		nativeConnection.sadd(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+		nativeConnection.sadd(SAME_SLOT_KEY_2_BYTES, VALUE_2_BYTES, VALUE_3_BYTES);
+
+		clusterConnection.sUnionStore(SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.smembers(SAME_SLOT_KEY_3_BYTES), hasItems(VALUE_1_BYTES, VALUE_2_BYTES, VALUE_3_BYTES));
 	}
 
 	/**
@@ -1100,6 +1248,20 @@ public class JedisClusterConnectionTests {
 		nativeConnection.sadd(KEY_2_BYTES, VALUE_2_BYTES, VALUE_3_BYTES);
 
 		assertThat(clusterConnection.sDiff(KEY_1_BYTES, KEY_2_BYTES), hasItems(VALUE_1_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void sDiffStoreShouldWorkWhenKeysMapToSameSlot() {
+
+		nativeConnection.sadd(SAME_SLOT_KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES);
+		nativeConnection.sadd(SAME_SLOT_KEY_2_BYTES, VALUE_2_BYTES, VALUE_3_BYTES);
+
+		clusterConnection.sDiffStore(SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.smembers(SAME_SLOT_KEY_3_BYTES), hasItems(VALUE_1_BYTES));
 	}
 
 	/**
@@ -1655,7 +1817,7 @@ public class JedisClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	public void flushDbOnSingleNodeShouldFlushOnlyGivenNodesDd() {
+	public void flushDbOnSingleNodeShouldFlushOnlyGivenNodesDb() {
 
 		nativeConnection.set(KEY_1, VALUE_1);
 		nativeConnection.set(KEY_2, VALUE_2);
@@ -1731,6 +1893,86 @@ public class JedisClusterConnectionTests {
 	@Test
 	public void getClusterNodeForKeyShouldReturnNodeCorrectly() {
 		assertThat((RedisNode) clusterConnection.getClusterNodeForKey(KEY_1_BYTES), is(new RedisNode("127.0.0.1", 7380)));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void countKeysShouldReturnNumberOfKeysInSlot() {
+
+		nativeConnection.set(SAME_SLOT_KEY_1, VALUE_1);
+		nativeConnection.set(SAME_SLOT_KEY_2, VALUE_2);
+
+		assertThat(clusterConnection.countKeys(ClusterSlotHashUtil.calculateSlot(SAME_SLOT_KEY_1)), is(2L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void pfAddShouldAddValuesCorrectly() {
+
+		clusterConnection.pfAdd(KEY_1_BYTES, VALUE_1_BYTES, VALUE_2_BYTES, VALUE_3_BYTES);
+
+		assertThat(nativeConnection.pfcount(KEY_1_BYTES), is(3L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void pfCountShouldAllowCountingOnSingleKey() {
+
+		nativeConnection.pfadd(KEY_1, VALUE_1, VALUE_2, VALUE_3);
+
+		assertThat(clusterConnection.pfCount(KEY_1_BYTES), is(3L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void pfCountShouldAllowCountingOnSameSlotKeys() {
+
+		nativeConnection.pfadd(SAME_SLOT_KEY_1, VALUE_1, VALUE_2);
+		nativeConnection.pfadd(SAME_SLOT_KEY_2, VALUE_2, VALUE_3);
+
+		assertThat(clusterConnection.pfCount(SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES), is(3L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void pfCountShouldThrowErrorCountingOnDifferentSlotKeys() {
+
+		nativeConnection.pfadd(KEY_1, VALUE_1, VALUE_2);
+		nativeConnection.pfadd(KEY_2, VALUE_2, VALUE_3);
+
+		clusterConnection.pfCount(KEY_1_BYTES, KEY_2_BYTES);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void pfMergeShouldWorkWhenAllKeysMapToSameSlot() {
+
+		nativeConnection.pfadd(SAME_SLOT_KEY_1, VALUE_1, VALUE_2);
+		nativeConnection.pfadd(SAME_SLOT_KEY_2, VALUE_2, VALUE_3);
+
+		clusterConnection.pfMerge(SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.pfcount(SAME_SLOT_KEY_3), is(3L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void pfMergeShouldThrowErrorOnDifferentSlotKeys() {
+		clusterConnection.pfMerge(KEY_3_BYTES, KEY_1_BYTES, KEY_2_BYTES);
 	}
 
 }

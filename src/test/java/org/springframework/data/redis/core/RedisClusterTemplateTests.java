@@ -24,7 +24,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runners.Parameterized.Parameters;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
-import org.springframework.data.redis.DoubleObjectFactory;
 import org.springframework.data.redis.LongObjectFactory;
 import org.springframework.data.redis.ObjectFactory;
 import org.springframework.data.redis.Person;
@@ -85,12 +84,6 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 		super.testExec();
 	}
 
-	@Test
-	@Ignore("Rename not supported in cluster mode")
-	public void testRenameIfAbsent() {
-		super.testRenameIfAbsent();
-	}
-
 	@Test(expected = InvalidDataAccessApiUsageException.class)
 	@Ignore("Pipeline not supported in cluster mode")
 	public void testExecutePipelinedNonNullSessionCallback() {
@@ -122,12 +115,6 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 	}
 
 	@Test
-	@Ignore("Rename not supported in cluster mode")
-	public void testRename() {
-		super.testRename();
-	}
-
-	@Test
 	@Ignore("Watch only supported on same connection...")
 	public void testWatchMultipleKeys() {
 		super.testWatchMultipleKeys();
@@ -139,18 +126,11 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 		super.testSortBulkMapper();
 	}
 
-	@Test
-	@Ignore("stort store not supported in cluster mode")
-	public void testSortStore() {
-		super.testSortStore();
-	}
-
 	@Parameters
 	public static Collection<Object[]> testParams() {
 
 		ObjectFactory<String> stringFactory = new StringObjectFactory();
 		ObjectFactory<Long> longFactory = new LongObjectFactory();
-		ObjectFactory<Double> doubleFactory = new DoubleObjectFactory();
 		ObjectFactory<byte[]> rawFactory = new RawObjectFactory();
 		ObjectFactory<Person> personFactory = new PersonObjectFactory();
 
