@@ -31,6 +31,7 @@ import java.util.concurrent.Future;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.ClusterRedirectException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.Assert;
@@ -48,6 +49,7 @@ public class ClusterCommandExecutor implements DisposableBean {
 	private final ClusterTopologyProvider topologyProvider;
 	private final ClusterNodeResourceProvider resourceProvider;
 	private final ExceptionTranslationStrategy exceptionTranslationStrategy;
+	private int maxRedirects = 5;
 
 	/**
 	 * Create a new instance of {@link ClusterCommandExecutor}.
@@ -111,6 +113,10 @@ public class ClusterCommandExecutor implements DisposableBean {
 	 * @return
 	 */
 	public <S, T> T executeCommandOnSingleNode(ClusterCommandCallback<S, T> cmd, RedisClusterNode node) {
+		return executeCommandOnSingleNode(cmd, node, 0);
+	}
+
+	private <S, T> T executeCommandOnSingleNode(ClusterCommandCallback<S, T> cmd, RedisClusterNode node, int redirectCount) {
 
 		Assert.notNull(cmd, "ClusterCommandCallback must not be null!");
 		Assert.notNull(node, "RedisClusterNode must not be null!");
@@ -123,7 +129,13 @@ public class ClusterCommandExecutor implements DisposableBean {
 		} catch (RuntimeException ex) {
 
 			RuntimeException translatedException = convertToDataAccessExeption(ex);
-			throw translatedException != null ? translatedException : ex;
+			if (translatedException instanceof ClusterRedirectException && redirectCount < maxRedirects) {
+				ClusterRedirectException cre = (ClusterRedirectException) translatedException;
+				return executeCommandOnSingleNode(cmd, topologyProvider.getTopology().lookup(cre.getTargetHost(), cre.getTargetPort()),
+						redirectCount + 1);
+			} else {
+				throw translatedException != null ? translatedException : ex;
+			}
 		} finally {
 			this.resourceProvider.returnResourceForSpecificNode(node, client);
 		}
@@ -281,6 +293,15 @@ public class ClusterCommandExecutor implements DisposableBean {
 
 	private DataAccessException convertToDataAccessExeption(Exception e) {
 		return exceptionTranslationStrategy.translate(e);
+	}
+
+	/**
+	 * Set the maximum number of redirects to follow on {@code MOVED} or {@code ASK}.
+	 * 
+	 * @param maxRedirects set to zero to suspend redirects.
+	 */
+	public void setMaxRedirects(int maxRedirects) {
+		this.maxRedirects = maxRedirects;
 	}
 
 	/*

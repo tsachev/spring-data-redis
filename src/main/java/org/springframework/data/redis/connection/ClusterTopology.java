@@ -105,6 +105,25 @@ public class ClusterTopology {
 	}
 
 	/**
+	 * Get the {@link RedisClusterNode} matching given {@literal host} and {@literal port}.
+	 * 
+	 * @param host must not be {@literal null}.
+	 * @param port
+	 * @return
+	 * @throws ClusterStateFailureExeption
+	 */
+	public RedisClusterNode lookup(String host, int port) {
+
+		for (RedisClusterNode node : nodes) {
+			if (host.equals(node.getHost()) && port == node.getPort()) {
+				return node;
+			}
+		}
+		throw new ClusterStateFailureExeption(String.format(
+				"Could not find node at %s:%s. Is your cluster info up to date?", host, port));
+	}
+
+	/**
 	 * @param key must not be {@literal null}.
 	 * @return {@literal null}.
 	 */

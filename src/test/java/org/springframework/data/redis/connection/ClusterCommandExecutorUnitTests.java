@@ -38,6 +38,7 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.data.redis.ClusterRedirectException;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.ClusterCommandCallback;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.MultiKeyClusterCommandCallback;
@@ -82,6 +83,12 @@ public class ClusterCommandExecutorUnitTests {
 
 		@Override
 		public DataAccessException convert(Exception source) {
+
+			if (source instanceof MovedException) {
+				return new ClusterRedirectException(1000, ((MovedException) source).host, ((MovedException) source).port,
+						source);
+			}
+
 			return new InvalidDataAccessApiUsageException(source.getMessage(), source);
 		}
 
@@ -244,6 +251,43 @@ public class ClusterCommandExecutorUnitTests {
 		assertThat(captor.getAllValues().size(), is(2));
 	}
 
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void executeCommandOnSingleNodeAndFollowRedirect() {
+
+		when(con1.theWheelWeavesAsTheWheelWills()).thenThrow(new MovedException(CLUSTER_NODE_3_HOST, CLUSTER_NODE_3_PORT));
+
+		executor.executeCommandOnSingleNode(COMMAND_CALLBACK, CLUSTER_NODE_1);
+
+		verify(con1, times(1)).theWheelWeavesAsTheWheelWills();
+		verify(con3, times(1)).theWheelWeavesAsTheWheelWills();
+		verify(con2, never()).theWheelWeavesAsTheWheelWills();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void executeCommandOnSingleNodeAndFollowRedirectButStopsAfterMaxRedirects() {
+
+		when(con1.theWheelWeavesAsTheWheelWills()).thenThrow(new MovedException(CLUSTER_NODE_3_HOST, CLUSTER_NODE_3_PORT));
+		when(con3.theWheelWeavesAsTheWheelWills()).thenThrow(new MovedException(CLUSTER_NODE_2_HOST, CLUSTER_NODE_2_PORT));
+		when(con2.theWheelWeavesAsTheWheelWills()).thenThrow(new MovedException(CLUSTER_NODE_1_HOST, CLUSTER_NODE_1_PORT));
+
+		try {
+			executor.setMaxRedirects(4);
+			executor.executeCommandOnSingleNode(COMMAND_CALLBACK, CLUSTER_NODE_1);
+		} catch (Exception e) {
+			assertThat(e, IsInstanceOf.instanceOf(ClusterRedirectException.class));
+		}
+
+		verify(con1, times(2)).theWheelWeavesAsTheWheelWills();
+		verify(con3, times(2)).theWheelWeavesAsTheWheelWills();
+		verify(con2, times(1)).theWheelWeavesAsTheWheelWills();
+	}
+
 	class MockClusterNodeProvider implements ClusterTopologyProvider {
 
 		@Override
@@ -292,6 +336,18 @@ public class ClusterCommandExecutorUnitTests {
 		String theWheelWeavesAsTheWheelWills();
 
 		String bloodAndAshes(byte[] key);
+	}
+
+	static class MovedException extends RuntimeException {
+
+		String host;
+		int port;
+
+		public MovedException(String host, int port) {
+			this.host = host;
+			this.port = port;
+		}
+
 	}
 
 }

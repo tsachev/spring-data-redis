@@ -27,6 +27,7 @@ import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
 
+import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
@@ -100,6 +101,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		closed = false;
 		topologyProvider = new JedisClusterTopologyProvider(cluster);
 		clusterCommandExecutor = new ClusterCommandExecutor(topologyProvider, this, EXCEPTION_TRANSLATION);
+
+		try {
+			DirectFieldAccessor dfa = new DirectFieldAccessor(cluster);
+			clusterCommandExecutor.setMaxRedirects((Integer) dfa.getPropertyValue("maxRedirections"));
+		} catch (Exception e) {
+			// ignore it and work with the executor default
+		}
+
 	}
 
 	/*
@@ -3329,9 +3338,11 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 
 			for (Entry<String, JedisPool> entry : cluster.getClusterNodes().entrySet()) {
-				Jedis jedis = entry.getValue().getResource();
+				Jedis jedis = null;
 
 				try {
+					jedis = entry.getValue().getResource();
+
 					time = System.currentTimeMillis();
 					Set<RedisClusterNode> nodes = JedisConverters.toSetOfRedisClusterNodes(jedis.clusterNodes());
 
