@@ -42,6 +42,7 @@ import org.springframework.data.redis.connection.DefaultTuple;
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisListCommands.Position;
 import org.springframework.data.redis.connection.RedisNode;
+import org.springframework.data.redis.connection.RedisStringCommands.BitOperation;
 import org.springframework.data.redis.connection.RedisZSetCommands.Range;
 import org.springframework.data.redis.connection.RedisZSetCommands.Tuple;
 import org.springframework.data.redis.core.Cursor;
@@ -710,6 +711,17 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
+	public void incrByFloatShouldIncreaseValueCorrectly() {
+
+		nativeConnection.set(KEY_1, "1");
+
+		assertThat(clusterConnection.incrBy(KEY_1_BYTES, 5.5D), is(6.5D));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
 	public void decrShouldDecreaseValueCorrectly() {
 
 		nativeConnection.set(KEY_1, "5");
@@ -762,6 +774,81 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 		clusterConnection.setRange(KEY_1_BYTES, JedisConverters.toBytes("UE"), 3);
 
 		assertThat(nativeConnection.get(KEY_1), is("valUE1"));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void getBitShouldWorkCorrectly() {
+
+		nativeConnection.setbit(KEY_1, 0, true);
+		nativeConnection.setbit(KEY_1, 1, false);
+
+		assertThat(clusterConnection.getBit(KEY_1_BYTES, 0), is(true));
+		assertThat(clusterConnection.getBit(KEY_1_BYTES, 1), is(false));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void setBitShouldWorkCorrectly() {
+
+		clusterConnection.setBit(KEY_1_BYTES, 0, true);
+		clusterConnection.setBit(KEY_1_BYTES, 1, false);
+
+		assertThat(nativeConnection.getbit(KEY_1, 0), is(true));
+		assertThat(nativeConnection.getbit(KEY_1, 1), is(false));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void bitCountShouldWorkCorrectly() {
+
+		nativeConnection.setbit(KEY_1, 0, true);
+		nativeConnection.setbit(KEY_1, 1, false);
+
+		assertThat(clusterConnection.bitCount(KEY_1_BYTES), is(1L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void bitCountWithRangeShouldWorkCorrectly() {
+
+		nativeConnection.setbit(KEY_1, 0, true);
+		nativeConnection.setbit(KEY_1, 1, false);
+		nativeConnection.setbit(KEY_1, 2, true);
+		nativeConnection.setbit(KEY_1, 3, false);
+		nativeConnection.setbit(KEY_1, 4, true);
+
+		assertThat(clusterConnection.bitCount(KEY_1_BYTES, 0, 3), is(3L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void bitOpShouldWorkCorrectly() {
+
+		nativeConnection.set(SAME_SLOT_KEY_1, "foo");
+		nativeConnection.set(SAME_SLOT_KEY_2, "bar");
+
+		clusterConnection.bitOp(BitOperation.AND, SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.get(SAME_SLOT_KEY_3), is("bab"));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void bitOpShouldThrowExceptionWhenKeysDoNotMapToSameSlot() {
+		clusterConnection.bitOp(BitOperation.AND, KEY_1_BYTES, KEY_2_BYTES, KEY_3_BYTES);
 	}
 
 	/**
@@ -1599,6 +1686,87 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
+	public void zRemRangeShouldRemoveValues() {
+
+		nativeConnection.zadd(KEY_1_BYTES, 10D, VALUE_1_BYTES);
+		nativeConnection.zadd(KEY_1_BYTES, 20D, VALUE_2_BYTES);
+		nativeConnection.zadd(KEY_1_BYTES, 30D, VALUE_3_BYTES);
+
+		clusterConnection.zRemRange(KEY_1_BYTES, 1, 2);
+
+		assertThat(nativeConnection.zcard(KEY_1_BYTES), is(1L));
+		assertThat(nativeConnection.zrange(KEY_1_BYTES, 0, -1), hasItem(VALUE_1_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void zRemRangeByScoreShouldRemoveValues() {
+
+		nativeConnection.zadd(KEY_1_BYTES, 10D, VALUE_1_BYTES);
+		nativeConnection.zadd(KEY_1_BYTES, 20D, VALUE_2_BYTES);
+		nativeConnection.zadd(KEY_1_BYTES, 30D, VALUE_3_BYTES);
+
+		clusterConnection.zRemRangeByScore(KEY_1_BYTES, 15D, 25D);
+
+		assertThat(nativeConnection.zcard(KEY_1_BYTES), is(2L));
+		assertThat(nativeConnection.zrange(KEY_1_BYTES, 0, -1), hasItems(VALUE_1_BYTES, VALUE_3_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void zUnionStoreShouldWorkForSameSlotKeys() {
+
+		nativeConnection.zadd(SAME_SLOT_KEY_1_BYTES, 10D, VALUE_1_BYTES);
+		nativeConnection.zadd(SAME_SLOT_KEY_1_BYTES, 30D, VALUE_3_BYTES);
+		nativeConnection.zadd(SAME_SLOT_KEY_2_BYTES, 20D, VALUE_2_BYTES);
+
+		clusterConnection.zUnionStore(SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.zrange(SAME_SLOT_KEY_3_BYTES, 0, -1),
+				hasItems(VALUE_1_BYTES, VALUE_2_BYTES, VALUE_3_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void zUnionStoreShouldThrowExceptionWhenKeysDoNotMapToSameSlots() {
+		clusterConnection.zUnionStore(KEY_3_BYTES, KEY_1_BYTES, KEY_2_BYTES);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void zInterStoreShouldWorkForSameSlotKeys() {
+
+		nativeConnection.zadd(SAME_SLOT_KEY_1_BYTES, 10D, VALUE_1_BYTES);
+		nativeConnection.zadd(SAME_SLOT_KEY_1_BYTES, 20D, VALUE_2_BYTES);
+
+		nativeConnection.zadd(SAME_SLOT_KEY_2_BYTES, 20D, VALUE_2_BYTES);
+		nativeConnection.zadd(SAME_SLOT_KEY_2_BYTES, 30D, VALUE_3_BYTES);
+
+		clusterConnection.zInterStore(SAME_SLOT_KEY_3_BYTES, SAME_SLOT_KEY_1_BYTES, SAME_SLOT_KEY_2_BYTES);
+
+		assertThat(nativeConnection.zrange(SAME_SLOT_KEY_3_BYTES, 0, -1), hasItems(VALUE_2_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void zInterStoreShouldThrowExceptionWhenKeysDoNotMapToSameSlots() {
+		clusterConnection.zInterStore(KEY_3_BYTES, KEY_1_BYTES, KEY_2_BYTES);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
 	public void hSetShouldSetValueCorrectly() {
 
 		clusterConnection.hSet(KEY_1_BYTES, KEY_2_BYTES, VALUE_1_BYTES);
@@ -1666,6 +1834,34 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 		clusterConnection.hMSet(KEY_1_BYTES, hashes);
 
 		assertThat(nativeConnection.hmget(KEY_1_BYTES, KEY_2_BYTES, KEY_3_BYTES), hasItems(VALUE_1_BYTES, VALUE_2_BYTES));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void hIncrByShouldIncreaseFieldCorretly() {
+
+		nativeConnection.hset(KEY_1_BYTES, KEY_2_BYTES, JedisConverters.toBytes(1L));
+		nativeConnection.hset(KEY_1_BYTES, KEY_3_BYTES, JedisConverters.toBytes(2L));
+
+		clusterConnection.hIncrBy(KEY_1_BYTES, KEY_3_BYTES, 3);
+
+		assertThat(nativeConnection.hget(KEY_1_BYTES, KEY_3_BYTES), is(JedisConverters.toBytes(5L)));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void hIncrByFloatShouldIncreaseFieldCorretly() {
+
+		nativeConnection.hset(KEY_1_BYTES, KEY_2_BYTES, JedisConverters.toBytes(1L));
+		nativeConnection.hset(KEY_1_BYTES, KEY_3_BYTES, JedisConverters.toBytes(2L));
+
+		clusterConnection.hIncrBy(KEY_1_BYTES, KEY_3_BYTES, 3.5D);
+
+		assertThat(nativeConnection.hget(KEY_1_BYTES, KEY_3_BYTES), is(JedisConverters.toBytes(5.5D)));
 	}
 
 	/**
@@ -1748,6 +1944,46 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 
 		assertThat(hGetAll.containsKey(KEY_2_BYTES), is(true));
 		assertThat(hGetAll.containsKey(KEY_3_BYTES), is(true));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void multiShouldThrowException() {
+		clusterConnection.multi();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void execShouldThrowException() {
+		clusterConnection.exec();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void discardShouldThrowException() {
+		clusterConnection.discard();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void watchShouldThrowException() {
+		clusterConnection.watch();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = DataAccessException.class)
+	public void unwatchShouldThrowException() {
+		clusterConnection.unwatch();
 	}
 
 	/**

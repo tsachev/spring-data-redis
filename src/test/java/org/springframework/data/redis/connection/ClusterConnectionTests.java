@@ -15,6 +15,7 @@
  */
 package org.springframework.data.redis.connection;
 
+
 public interface ClusterConnectionTests {
 
 	/**
@@ -260,6 +261,11 @@ public interface ClusterConnectionTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
+	void incrByFloatShouldIncreaseValueCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
 	void decrShouldDecreaseValueCorrectly();
 
 	/**
@@ -281,6 +287,31 @@ public interface ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	void setRangeShouldWorkCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void getBitShouldWorkCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void setBitShouldWorkCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void bitCountShouldWorkCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void bitCountWithRangeShouldWorkCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void bitOpShouldThrowExceptionWhenKeysDoNotMapToSameSlot();
 
 	/**
 	 * @see DATAREDIS-315
@@ -615,6 +646,36 @@ public interface ClusterConnectionTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
+	void zRemRangeShouldRemoveValues();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void zRemRangeByScoreShouldRemoveValues();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void zUnionStoreShouldWorkForSameSlotKeys();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void zUnionStoreShouldThrowExceptionWhenKeysDoNotMapToSameSlots();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void zInterStoreShouldWorkForSameSlotKeys();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void zInterStoreShouldThrowExceptionWhenKeysDoNotMapToSameSlots();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
 	void hSetShouldSetValueCorrectly();
 
 	/**
@@ -645,6 +706,16 @@ public interface ClusterConnectionTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
+	void hIncrByShouldIncreaseFieldCorretly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void hIncrByFloatShouldIncreaseFieldCorretly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
 	void hExistsShouldReturnPresenceOfFieldCorrectly();
 
 	/**
@@ -671,6 +742,31 @@ public interface ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	void hGetAllShouldRetrieveEntriesCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void multiShouldThrowException();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void execShouldThrowException();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void discardShouldThrowException();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void watchShouldThrowException();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void unwatchShouldThrowException();
 
 	/**
 	 * @see DATAREDIS-315

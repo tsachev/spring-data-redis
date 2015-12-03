@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -30,6 +31,7 @@ import java.util.Set;
 import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.data.redis.ClusterStateFailureExeption;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.connection.ClusterCommandExecutor;
@@ -824,8 +826,19 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	@Override
 	public Long bitOp(BitOperation op, byte[] destination, byte[]... keys) {
 
-		// TODO: not allowed on multiple keys, but one on same host would be ok"
-		throw new UnsupportedOperationException("BITOP is not supported in cluster mode");
+		byte[][] allKeys = new byte[keys.length + 1][];
+		allKeys[0] = destination;
+		System.arraycopy(keys, 0, allKeys, 1, keys.length);
+
+		if (ClusterSlotHashUtil.isSameSlotForAllKeys(allKeys)) {
+			try {
+				return cluster.bitop(JedisConverters.toBitOp(op), destination, keys);
+			} catch (Exception ex) {
+				throw convertJedisAccessException(ex);
+			}
+		}
+
+		throw new InvalidDataAccessApiUsageException("BITOP is only supported for same slot keys in cluster mode.");
 	}
 
 	/*
@@ -2000,7 +2013,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	public Long zRemRange(byte[] key, long begin, long end) {
 
 		try {
-			return cluster.zremrangeByScore(key, begin, end);
+			return cluster.zremrangeByRank(key, begin, end);
 		} catch (Exception ex) {
 			throw convertJedisAccessException(ex);
 		}
@@ -2040,7 +2053,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 		}
 
-		throw new IllegalArgumentException("ZUNIONSTORE can only be executed when all keys map to the same slot");
+		throw new InvalidDataAccessApiUsageException("ZUNIONSTORE can only be executed when all keys map to the same slot");
 	}
 
 	/*
@@ -2065,7 +2078,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 		}
 
-		throw new IllegalArgumentException("ZUNIONSTORE can only be executed when all keys map to the same slot");
+		throw new InvalidDataAccessApiUsageException("ZUNIONSTORE can only be executed when all keys map to the same slot");
 	}
 
 	@Override
@@ -2084,7 +2097,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 		}
 
-		throw new IllegalArgumentException("ZINTERSTORE can only be executed when all keys map to the same slot");
+		throw new InvalidDataAccessApiUsageException("ZINTERSTORE can only be executed when all keys map to the same slot");
 	}
 
 	@Override
@@ -2349,8 +2362,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 */
 	@Override
 	public void multi() {
-		throw new UnsupportedOperationException(
-				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
+		throw new InvalidDataAccessApiUsageException("MUTLI is currently not supported in cluster mode.");
 	}
 
 	/*
@@ -2359,8 +2371,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 */
 	@Override
 	public List<Object> exec() {
-		throw new UnsupportedOperationException(
-				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
+		throw new InvalidDataAccessApiUsageException("EXEC is currently not supported in cluster mode.");
 	}
 
 	/*
@@ -2369,8 +2380,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 */
 	@Override
 	public void discard() {
-		throw new UnsupportedOperationException(
-				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
+		throw new InvalidDataAccessApiUsageException("DISCARD is currently not supported in cluster mode.");
 	}
 
 	/*
@@ -2379,8 +2389,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 */
 	@Override
 	public void watch(byte[]... keys) {
-		throw new UnsupportedOperationException(
-				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
+		throw new InvalidDataAccessApiUsageException("WATCH is currently not supported in cluster mode.");
 	}
 
 	/*
@@ -2389,8 +2398,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 */
 	@Override
 	public void unwatch() {
-		throw new UnsupportedOperationException(
-				"Well not really its just that all subsequent ops have to use same connection und must be performed on same slot");
+		throw new InvalidDataAccessApiUsageException("UNWATCH is currently not supported in cluster mode.");
 
 	}
 
@@ -3042,6 +3050,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		}
 	}
 
+	/*
+	 * --> Cluster Commands
+	 */
+
 	@Override
 	public void clusterSetSlot(RedisClusterNode node, final int slot, final AddSlots mode) {
 
@@ -3070,10 +3082,6 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		}, node);
 		return null;
 	}
-
-	/*
-	 * --> Cluster Commands
-	 */
 
 	@Override
 	public void addSlots(RedisClusterNode node, final int... slots) {
@@ -3118,10 +3126,14 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterForget(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void clusterForget(final RedisClusterNode node) {
 
-		Set<RedisClusterNode> nodes = getClusterNodes();
+		Set<RedisClusterNode> nodes = new LinkedHashSet<RedisClusterNode>(topologyProvider.getTopology().getMasterNodes());
 		nodes.remove(node);
 
 		clusterCommandExecutor.executeCommandAsyncOnNodes(new JedisClusterCommandCallback<String>() {
@@ -3131,21 +3143,23 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 				return client.clusterForget(node.getId());
 			}
 		}, nodes);
-
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterMeet(org.springframework.data.redis.connection.RedisClusterNode)
+	 */
 	@Override
 	public void clusterMeet(final RedisClusterNode node) {
 
 		Assert.notNull(node, "Node to meet cluster must not be null!");
 
-		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnAllNodes(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
+			public String doInCluster(Jedis client) {
 
-				client.clusterMeet(node.getHost(), node.getPort());
-				return null;
+				return client.clusterMeet(node.getHost(), node.getPort());
 			}
 		});
 	}
@@ -3153,13 +3167,12 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	@Override
 	public void clusterReplicate(final RedisClusterNode master, RedisClusterNode slave) {
 
-		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Void>() {
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
+			public String doInCluster(Jedis client) {
 
-				client.clusterReplicate(master.getId());
-				return null;
+				return client.clusterReplicate(master.getId());
 			}
 		}, slave);
 
@@ -3394,7 +3407,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 				}
 			}
 
-			throw new IllegalArgumentException("could not get cluster info");
+			throw new ClusterStateFailureExeption("Could not retrieve cluster info.");
 		}
 	}
 

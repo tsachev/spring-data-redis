@@ -88,6 +88,7 @@ public class LettuceClusterConnectionUnitTests {
 
 	@Before
 	public void setUp() {
+
 		Partitions partitions = new Partitions();
 
 		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition1 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();

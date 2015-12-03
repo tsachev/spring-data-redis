@@ -200,8 +200,6 @@ public class JedisConvertersUnitTests {
 	}
 
 	/**
-	 * <<<<<<< HEAD
-	 * 
 	 * @see DATAREDIS-352
 	 */
 	@Test
