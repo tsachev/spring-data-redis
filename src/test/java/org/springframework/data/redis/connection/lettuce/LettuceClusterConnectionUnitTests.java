@@ -138,7 +138,7 @@ public class LettuceClusterConnectionUnitTests {
 			}
 
 			@Override
-			public List<RedisClusterNode> getClusterNodes() {
+			public List<RedisClusterNode> clusterGetClusterNodes() {
 				return Arrays.asList(CLUSTER_NODE_1, CLUSTER_NODE_2, CLUSTER_NODE_3);
 			}
 		};

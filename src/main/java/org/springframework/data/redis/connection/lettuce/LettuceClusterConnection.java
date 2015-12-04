@@ -242,7 +242,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterSlaves(org.springframework.data.redis.connection.RedisClusterNode)
 	 */
 	@Override
-	public Iterable<RedisClusterNode> getClusterSlaves(final RedisClusterNode master) {
+	public Collection<RedisClusterNode> clusterGetSlaves(final RedisClusterNode master) {
 
 		return clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<Set<RedisClusterNode>>() {
 
@@ -258,7 +258,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterSlotForKey(byte[])
 	 */
 	@Override
-	public Integer getClusterSlotForKey(byte[] key) {
+	public Integer clusterGetSlotForKey(byte[] key) {
 		return SlotHash.getSlot(key);
 	}
 
@@ -267,7 +267,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterNodeForSlot(int)
 	 */
 	@Override
-	public RedisClusterNode getClusterNodeForSlot(int slot) {
+	public RedisClusterNode clusterGetNodeForSlot(int slot) {
 
 		DirectFieldAccessor accessor = new DirectFieldAccessor(clusterClient);
 		return LettuceConverters.toRedisClusterNode(((Partitions) accessor.getPropertyValue("partitions"))
@@ -279,8 +279,8 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterNodeForKey(byte[])
 	 */
 	@Override
-	public RedisClusterNode getClusterNodeForKey(byte[] key) {
-		return getClusterNodeForSlot(getClusterSlotForKey(key));
+	public RedisClusterNode clusterGetNodeForKey(byte[] key) {
+		return clusterGetNodeForSlot(clusterGetSlotForKey(key));
 	}
 
 	/*
@@ -288,7 +288,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterInfo()
 	 */
 	@Override
-	public ClusterInfo getClusterInfo() {
+	public ClusterInfo clusterGetClusterInfo() {
 
 		return clusterCommandExecutor.executeCommandOnArbitraryNode(new LettuceCommandCallback<ClusterInfo>() {
 
@@ -304,7 +304,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#addSlots(org.springframework.data.redis.connection.RedisClusterNode, int[])
 	 */
 	@Override
-	public void addSlots(RedisClusterNode node, final int... slots) {
+	public void clusterAddSlots(RedisClusterNode node, final int... slots) {
 
 		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
@@ -321,7 +321,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#deleteSlots(org.springframework.data.redis.connection.RedisClusterNode, int[])
 	 */
 	@Override
-	public void deleteSlots(RedisClusterNode node, final int... slots) {
+	public void clusterDeleteSlots(RedisClusterNode node, final int... slots) {
 
 		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
@@ -339,7 +339,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void clusterForget(final RedisClusterNode node) {
 
-		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(getClusterNodes());
+		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(clusterGetClusterNodes());
 		nodes.remove(node);
 
 		this.clusterCommandExecutor.executeCommandAsyncOnNodes(new LettuceCommandCallback<String>() {
@@ -401,7 +401,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getKeysInSlot(int, java.lang.Integer)
 	 */
 	@Override
-	public List<byte[]> getKeysInSlot(int slot, Integer count) {
+	public List<byte[]> clusterGetKeysInSlot(int slot, Integer count) {
 
 		try {
 			return getConnection().clusterGetKeysInSlot(slot, count);
@@ -415,7 +415,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#countKeys(int)
 	 */
 	@Override
-	public Long countKeys(int slot) {
+	public Long clusterCountKeysInSlot(int slot) {
 
 		try {
 			return getConnection().clusterCountKeysInSlot(slot);
@@ -667,7 +667,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public byte[] randomKey() {
 
-		List<RedisClusterNode> nodes = getClusterNodes();
+		List<RedisClusterNode> nodes = clusterGetClusterNodes();
 		Set<RedisClusterNode> inspectedNodes = new HashSet<RedisClusterNode>(nodes.size());
 
 		do {
@@ -1138,7 +1138,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterNodes()
 	 */
 	@Override
-	public List<RedisClusterNode> getClusterNodes() {
+	public List<RedisClusterNode> clusterGetClusterNodes() {
 		return LettuceConverters.partitionsToClusterNodes(clusterClient.getPartitions());
 	}
 

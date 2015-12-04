@@ -78,7 +78,7 @@ public interface RedisClusterConnection extends RedisConnection, RedisClusterCom
 
 	/**
 	 * @see RedisServerCommands#info()
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 * @return
 	 */
 	Properties info(RedisClusterNode node);

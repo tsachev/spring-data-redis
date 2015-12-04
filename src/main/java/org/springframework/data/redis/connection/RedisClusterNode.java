@@ -34,6 +34,18 @@ public class RedisClusterNode extends RedisNode {
 	private final SlotRange slotRange;
 
 	/**
+	 * Creates new {@link RedisClusterNode} with empty {@link SlotRange}.
+	 * 
+	 * @param host must not be {@literal null}.
+	 * @param port
+	 */
+	public RedisClusterNode(String host, int port) {
+		this(host, port, new SlotRange(Collections.<Integer> emptySet()));
+	}
+
+	/**
+	 * Creates new {@link RedisClusterNode} with given {@link SlotRange}.
+	 * 
 	 * @param host must not be {@literal null}.
 	 * @param port
 	 * @param slotRange can be {@literal null}.
@@ -81,7 +93,7 @@ public class RedisClusterNode extends RedisNode {
 		public SlotRange(Integer lowerBound, Integer upperBound) {
 
 			Assert.notNull(lowerBound, "LowerBound must not be null!");
-			Assert.notNull(upperBound, "LowerBound must not be null!");
+			Assert.notNull(upperBound, "UpperBound must not be null!");
 
 			this.range = new LinkedHashSet<Integer>();
 			for (int i = lowerBound; i <= upperBound; i++) {
@@ -105,6 +117,25 @@ public class RedisClusterNode extends RedisNode {
 		 */
 		public boolean contains(int slot) {
 			return range.contains(slot);
+		}
+
+		/**
+		 * @return
+		 */
+		public Set<Integer> getSlots() {
+			return Collections.unmodifiableSet(range);
+		}
+
+		public int[] getSlotsArray() {
+
+			int[] slots = new int[range.size()];
+			int pos = 0;
+
+			for (Integer value : range) {
+				slots[pos++] = value.intValue();
+			}
+
+			return slots;
 		}
 	}
 }

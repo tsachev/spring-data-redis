@@ -151,32 +151,32 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 
 		jedisConnectionFactory.afterPropertiesSet();
 
-		RedisClusterTemplate<String, String> jedisStringTemplate = new RedisClusterTemplate<String, String>();
+		RedisTemplate<String, String> jedisStringTemplate = new RedisTemplate<String, String>();
 		jedisStringTemplate.setDefaultSerializer(new StringRedisSerializer());
 		jedisStringTemplate.setConnectionFactory(jedisConnectionFactory);
 		jedisStringTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, Long> jedisLongTemplate = new RedisClusterTemplate<String, Long>();
+		RedisTemplate<String, Long> jedisLongTemplate = new RedisTemplate<String, Long>();
 		jedisLongTemplate.setKeySerializer(new StringRedisSerializer());
 		jedisLongTemplate.setValueSerializer(new GenericToStringSerializer<Long>(Long.class));
 		jedisLongTemplate.setConnectionFactory(jedisConnectionFactory);
 		jedisLongTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<byte[], byte[]> jedisRawTemplate = new RedisClusterTemplate<byte[], byte[]>();
+		RedisTemplate<byte[], byte[]> jedisRawTemplate = new RedisTemplate<byte[], byte[]>();
 		jedisRawTemplate.setEnableDefaultSerializer(false);
 		jedisRawTemplate.setConnectionFactory(jedisConnectionFactory);
 		jedisRawTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, Person> jedisPersonTemplate = new RedisClusterTemplate<String, Person>();
+		RedisTemplate<String, Person> jedisPersonTemplate = new RedisTemplate<String, Person>();
 		jedisPersonTemplate.setConnectionFactory(jedisConnectionFactory);
 		jedisPersonTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, String> jedisXstreamStringTemplate = new RedisClusterTemplate<String, String>();
+		RedisTemplate<String, String> jedisXstreamStringTemplate = new RedisTemplate<String, String>();
 		jedisXstreamStringTemplate.setConnectionFactory(jedisConnectionFactory);
 		jedisXstreamStringTemplate.setDefaultSerializer(serializer);
 		jedisXstreamStringTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, Person> jedisJackson2JsonPersonTemplate = new RedisClusterTemplate<String, Person>();
+		RedisTemplate<String, Person> jedisJackson2JsonPersonTemplate = new RedisTemplate<String, Person>();
 		jedisJackson2JsonPersonTemplate.setConnectionFactory(jedisConnectionFactory);
 		jedisJackson2JsonPersonTemplate.setValueSerializer(jackson2JsonSerializer);
 		jedisJackson2JsonPersonTemplate.afterPropertiesSet();
@@ -188,32 +188,32 @@ public class RedisClusterTemplateTests<K, V> extends RedisTemplateTests<K, V> {
 
 		lettuceConnectionFactory.afterPropertiesSet();
 
-		RedisClusterTemplate<String, String> lettuceStringTemplate = new RedisClusterTemplate<String, String>();
+		RedisTemplate<String, String> lettuceStringTemplate = new RedisTemplate<String, String>();
 		lettuceStringTemplate.setDefaultSerializer(new StringRedisSerializer());
 		lettuceStringTemplate.setConnectionFactory(lettuceConnectionFactory);
 		lettuceStringTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, Long> lettuceLongTemplate = new RedisClusterTemplate<String, Long>();
+		RedisTemplate<String, Long> lettuceLongTemplate = new RedisTemplate<String, Long>();
 		lettuceLongTemplate.setKeySerializer(new StringRedisSerializer());
 		lettuceLongTemplate.setValueSerializer(new GenericToStringSerializer<Long>(Long.class));
 		lettuceLongTemplate.setConnectionFactory(lettuceConnectionFactory);
 		lettuceLongTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<byte[], byte[]> lettuceRawTemplate = new RedisClusterTemplate<byte[], byte[]>();
+		RedisTemplate<byte[], byte[]> lettuceRawTemplate = new RedisTemplate<byte[], byte[]>();
 		lettuceRawTemplate.setEnableDefaultSerializer(false);
 		lettuceRawTemplate.setConnectionFactory(lettuceConnectionFactory);
 		lettuceRawTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, Person> lettucePersonTemplate = new RedisClusterTemplate<String, Person>();
+		RedisTemplate<String, Person> lettucePersonTemplate = new RedisTemplate<String, Person>();
 		lettucePersonTemplate.setConnectionFactory(lettuceConnectionFactory);
 		lettucePersonTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, String> lettuceXstreamStringTemplate = new RedisClusterTemplate<String, String>();
+		RedisTemplate<String, String> lettuceXstreamStringTemplate = new RedisTemplate<String, String>();
 		lettuceXstreamStringTemplate.setConnectionFactory(lettuceConnectionFactory);
 		lettuceXstreamStringTemplate.setDefaultSerializer(serializer);
 		lettuceXstreamStringTemplate.afterPropertiesSet();
 
-		RedisClusterTemplate<String, Person> lettuceJackson2JsonPersonTemplate = new RedisClusterTemplate<String, Person>();
+		RedisTemplate<String, Person> lettuceJackson2JsonPersonTemplate = new RedisTemplate<String, Person>();
 		lettuceJackson2JsonPersonTemplate.setConnectionFactory(lettuceConnectionFactory);
 		lettuceJackson2JsonPersonTemplate.setValueSerializer(jackson2JsonSerializer);
 		lettuceJackson2JsonPersonTemplate.afterPropertiesSet();

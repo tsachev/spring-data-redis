@@ -224,7 +224,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	@Override
 	public byte[] randomKey() {
 
-		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(getClusterNodes());
+		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(clusterGetClusterNodes());
 		Set<RedisNode> inspectedNodes = new HashSet<RedisNode>(nodes.size());
 
 		do {
@@ -500,7 +500,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 				client.restore(key, Long.valueOf(ttlInMillis).intValue(), serializedValue);
 				return null;
 			}
-		}, getClusterNodeForKey(key));
+		}, clusterGetNodeForKey(key));
 	}
 
 	/*
@@ -3068,9 +3068,9 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public List<byte[]> getKeysInSlot(final int slot, final Integer count) {
+	public List<byte[]> clusterGetKeysInSlot(final int slot, final Integer count) {
 
-		RedisClusterNode node = getClusterNodeForSlot(slot);
+		RedisClusterNode node = clusterGetNodeForSlot(slot);
 
 		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<List<byte[]>>() {
 
@@ -3084,7 +3084,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public void addSlots(RedisClusterNode node, final int... slots) {
+	public void clusterAddSlots(RedisClusterNode node, final int... slots) {
 
 		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
@@ -3098,9 +3098,9 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public Long countKeys(final int slot) {
+	public Long clusterCountKeysInSlot(final int slot) {
 
-		RedisClusterNode node = getClusterNodeForSlot(slot);
+		RedisClusterNode node = clusterGetNodeForSlot(slot);
 
 		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Long>() {
 
@@ -3114,7 +3114,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public void deleteSlots(RedisClusterNode node, final int... slots) {
+	public void clusterDeleteSlots(RedisClusterNode node, final int... slots) {
 
 		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
@@ -3183,7 +3183,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#getClusterSlotForKey(byte[])
 	 */
 	@Override
-	public Integer getClusterSlotForKey(final byte[] key) {
+	public Integer clusterGetSlotForKey(final byte[] key) {
 
 		return clusterCommandExecutor.executeCommandOnArbitraryNode(new JedisClusterCommandCallback<Integer>() {
 
@@ -3195,7 +3195,7 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public RedisClusterNode getClusterNodeForSlot(int slot) {
+	public RedisClusterNode clusterGetNodeForSlot(int slot) {
 
 		for (RedisClusterNode node : topologyProvider.getTopology().getSlotServingNodes(slot)) {
 			if (node.isMaster()) {
@@ -3207,12 +3207,12 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public Set<RedisClusterNode> getClusterNodes() {
+	public Set<RedisClusterNode> clusterGetClusterNodes() {
 		return topologyProvider.getTopology().getNodes();
 	}
 
 	@Override
-	public Set<RedisClusterNode> getClusterSlaves(final RedisClusterNode master) {
+	public Set<RedisClusterNode> clusterGetSlaves(final RedisClusterNode master) {
 
 		return clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Set<RedisClusterNode>>() {
 
@@ -3224,12 +3224,12 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	}
 
 	@Override
-	public RedisClusterNode getClusterNodeForKey(byte[] key) {
-		return getClusterNodeForSlot(getClusterSlotForKey(key));
+	public RedisClusterNode clusterGetNodeForKey(byte[] key) {
+		return clusterGetNodeForSlot(clusterGetSlotForKey(key));
 	}
 
 	@Override
-	public ClusterInfo getClusterInfo() {
+	public ClusterInfo clusterGetClusterInfo() {
 
 		return clusterCommandExecutor.executeCommandOnArbitraryNode(new JedisClusterCommandCallback<ClusterInfo>() {
 

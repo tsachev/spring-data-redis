@@ -15,6 +15,7 @@
  */
 package org.springframework.data.redis.connection;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -30,7 +31,7 @@ public interface RedisClusterCommands {
 	 * 
 	 * @return never {@literal null}.
 	 */
-	Iterable<RedisClusterNode> getClusterNodes();
+	Iterable<RedisClusterNode> clusterGetClusterNodes();
 
 	/**
 	 * Retrieve information about connected slaves for given master node.
@@ -38,7 +39,7 @@ public interface RedisClusterCommands {
 	 * @param node must not be {@literal null}.
 	 * @return never {@literal null}.
 	 */
-	Iterable<RedisClusterNode> getClusterSlaves(RedisClusterNode master);
+	Collection<RedisClusterNode> clusterGetSlaves(RedisClusterNode master);
 
 	/**
 	 * Find the slot for a given {@code key}.
@@ -46,7 +47,7 @@ public interface RedisClusterCommands {
 	 * @param key must not be {@literal null}.
 	 * @return
 	 */
-	Integer getClusterSlotForKey(byte[] key);
+	Integer clusterGetSlotForKey(byte[] key);
 
 	/**
 	 * Find the {@link RedisNode} serving given {@literal slot}.
@@ -54,7 +55,7 @@ public interface RedisClusterCommands {
 	 * @param slot
 	 * @return
 	 */
-	RedisClusterNode getClusterNodeForSlot(int slot);
+	RedisClusterNode clusterGetNodeForSlot(int slot);
 
 	/**
 	 * Find the {@link RedisNode} serving given {@literal key}.
@@ -62,14 +63,14 @@ public interface RedisClusterCommands {
 	 * @param key must not be {@literal null}.
 	 * @return
 	 */
-	RedisClusterNode getClusterNodeForKey(byte[] key);
+	RedisClusterNode clusterGetNodeForKey(byte[] key);
 
 	/**
 	 * Get cluster information.
 	 * 
 	 * @return
 	 */
-	ClusterInfo getClusterInfo();
+	ClusterInfo clusterGetClusterInfo();
 
 	/**
 	 * Assign slots to given {@link RedisNode}.
@@ -77,7 +78,7 @@ public interface RedisClusterCommands {
 	 * @param node must not be {@literal null}.
 	 * @param slots
 	 */
-	void addSlots(RedisClusterNode node, int... slots);
+	void clusterAddSlots(RedisClusterNode node, int... slots);
 
 	/**
 	 * Count the number of keys assigned to one {@literal slot}.
@@ -85,7 +86,7 @@ public interface RedisClusterCommands {
 	 * @param slot
 	 * @return
 	 */
-	Long countKeys(int slot);
+	Long clusterCountKeysInSlot(int slot);
 
 	/**
 	 * Remove slots from {@link RedisNode}.
@@ -93,7 +94,7 @@ public interface RedisClusterCommands {
 	 * @param node must not be {@literal null}.
 	 * @param slots
 	 */
-	void deleteSlots(RedisClusterNode node, int... slots);
+	void clusterDeleteSlots(RedisClusterNode node, int... slots);
 
 	/**
 	 * Remove given {@literal node} from cluster.
@@ -123,7 +124,7 @@ public interface RedisClusterCommands {
 	 * @param count must not be {@literal null}.
 	 * @return
 	 */
-	List<byte[]> getKeysInSlot(int slot, Integer count);
+	List<byte[]> clusterGetKeysInSlot(int slot, Integer count);
 
 	/**
 	 * Assign a {@literal slave} to given {@literal master}.

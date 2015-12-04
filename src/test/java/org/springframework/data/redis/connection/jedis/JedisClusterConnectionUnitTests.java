@@ -189,7 +189,7 @@ public class JedisClusterConnectionUnitTests {
 		when(con2Mock.clusterInfo()).thenReturn(CLUSTER_INFO_RESPONSE);
 		when(con3Mock.clusterInfo()).thenReturn(CLUSTER_INFO_RESPONSE);
 
-		ClusterInfo p = connection.getClusterInfo();
+		ClusterInfo p = connection.clusterGetClusterInfo();
 		assertThat(p.getSlotsAssigned(), is(16384L));
 	}
 

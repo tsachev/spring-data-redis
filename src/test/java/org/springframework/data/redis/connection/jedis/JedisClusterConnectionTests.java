@@ -2128,7 +2128,7 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 	 */
 	@Test
 	public void getClusterNodeForKeyShouldReturnNodeCorrectly() {
-		assertThat((RedisNode) clusterConnection.getClusterNodeForKey(KEY_1_BYTES), is(new RedisNode("127.0.0.1", 7380)));
+		assertThat((RedisNode) clusterConnection.clusterGetNodeForKey(KEY_1_BYTES), is(new RedisNode("127.0.0.1", 7380)));
 	}
 
 	/**
@@ -2140,7 +2140,7 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 		nativeConnection.set(SAME_SLOT_KEY_1, VALUE_1);
 		nativeConnection.set(SAME_SLOT_KEY_2, VALUE_2);
 
-		assertThat(clusterConnection.countKeys(ClusterSlotHashUtil.calculateSlot(SAME_SLOT_KEY_1)), is(2L));
+		assertThat(clusterConnection.clusterCountKeysInSlot(ClusterSlotHashUtil.calculateSlot(SAME_SLOT_KEY_1)), is(2L));
 	}
 
 	/**
