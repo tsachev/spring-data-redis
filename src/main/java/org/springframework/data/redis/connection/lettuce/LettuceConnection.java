@@ -4035,4 +4035,37 @@ public class LettuceConnection extends AbstractRedisConnection {
 		}
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#migrate(byte[], org.springframework.data.redis.connection.RedisNode, int, org.springframework.data.redis.connection.RedisServerCommands.MigrateOption)
+	 */
+	@Override
+	public void migrate(byte[] key, RedisNode target, int dbIndex, MigrateOption option) {
+		migrate(key, target, dbIndex, option, Long.MAX_VALUE);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#migrate(byte[], org.springframework.data.redis.connection.RedisNode, int, org.springframework.data.redis.connection.RedisServerCommands.MigrateOption, long)
+	 */
+	@Override
+	public void migrate(byte[] key, RedisNode target, int dbIndex, MigrateOption option, long timeout) {
+
+		try {
+			if (isPipelined()) {
+				pipeline(new LettuceResult(getAsyncConnection().migrate(target.getHost(), target.getPort(), key, dbIndex,
+						timeout)));
+				return;
+			}
+			if (isQueueing()) {
+				transaction(new LettuceTxResult(getConnection().migrate(target.getHost(), target.getPort(), key, dbIndex,
+						timeout)));
+				return;
+			}
+			getConnection().migrate(target.getHost(), target.getPort(), key, dbIndex, timeout);
+		} catch (Exception ex) {
+			throw convertLettuceAccessException(ex);
+		}
+	}
+
 }

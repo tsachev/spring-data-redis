@@ -43,6 +43,7 @@ import org.springframework.data.redis.connection.ClusterSlotHashUtil;
 import org.springframework.data.redis.connection.ClusterTopology;
 import org.springframework.data.redis.connection.ClusterTopologyProvider;
 import org.springframework.data.redis.connection.RedisClusterNode;
+import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.SortParameters;
 import org.springframework.data.redis.connection.util.ByteArraySet;
 import org.springframework.data.redis.core.Cursor;
@@ -50,6 +51,7 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ObjectUtils;
+import org.springframework.util.StringUtils;
 
 import com.lambdaworks.redis.KeyValue;
 import com.lambdaworks.redis.RedisAsyncConnection;
@@ -318,6 +320,18 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 	/*
 	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterAddSlots(org.springframework.data.redis.connection.RedisClusterNode, org.springframework.data.redis.connection.RedisClusterNode.SlotRange)
+	 */
+	@Override
+	public void clusterAddSlots(RedisClusterNode node, SlotRange range) {
+
+		Assert.notNull(range, "Range must not be null.");
+
+		clusterAddSlots(node, range.getSlotsArray());
+	}
+
+	/*
+	 * (non-Javadoc)
 	 * @see org.springframework.data.redis.connection.RedisClusterCommands#deleteSlots(org.springframework.data.redis.connection.RedisClusterNode, int[])
 	 */
 	@Override
@@ -330,6 +344,18 @@ public class LettuceClusterConnection extends LettuceConnection implements
 				return client.clusterDelSlots(slots);
 			}
 		}, node);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterDeleteSlotsInRange(org.springframework.data.redis.connection.RedisClusterNode, org.springframework.data.redis.connection.RedisClusterNode.SlotRange)
+	 */
+	@Override
+	public void clusterDeleteSlotsInRange(RedisClusterNode node, SlotRange range) {
+
+		Assert.notNull(range, "Range must not be null.");
+
+		clusterDeleteSlots(node, range.getSlotsArray());
 	}
 
 	/*
@@ -377,23 +403,30 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	@Override
 	public void clusterSetSlot(final RedisClusterNode node, final int slot, final AddSlots mode) {
 
+		Assert.notNull(node, "Node must not be null.");
+		Assert.notNull(mode, "AddSlots mode must not be null.");
+
+		final String nodeId = StringUtils.hasText(node.getId()) ? node.getId() : topologyProvider.getTopology()
+				.lookup(node.getHost(), node.getPort()).getId();
+
 		clusterCommandExecutor.executeCommandOnSingleNode(new LettuceCommandCallback<String>() {
 
 			@Override
 			public String doInCluster(RedisClusterConnection<byte[], byte[]> client) {
 				switch (mode) {
 					case MIGRATING:
-						return client.clusterSetSlotMigrating(slot, node.getId());
+						return client.clusterSetSlotMigrating(slot, nodeId);
 					case IMPORTING:
-						return client.clusterSetSlotImporting(slot, node.getId());
+						return client.clusterSetSlotImporting(slot, nodeId);
 					case NODE:
-						return client.clusterSetSlotNode(slot, node.getId());
+						return client.clusterSetSlotNode(slot, nodeId);
+					case STABLE:
+						throw new IllegalArgumentException("STABLE is not valid when using lettuce.");
 					default:
-						throw new InvalidDataAccessApiUsageException("Invlid import mode for cluster slot: " + mode);
+						throw new InvalidDataAccessApiUsageException("Invlid import mode for cluster slot: " + slot);
 				}
 			}
 		}, node);
-
 	}
 
 	/*

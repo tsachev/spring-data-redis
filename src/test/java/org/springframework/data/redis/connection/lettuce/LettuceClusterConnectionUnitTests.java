@@ -28,10 +28,12 @@ import java.util.Collections;
 import java.util.List;
 
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisNode.NodeType;
 import org.springframework.util.ObjectUtils;
@@ -97,12 +99,12 @@ public class LettuceClusterConnectionUnitTests {
 		partition1.setUri(RedisURI.create("redis://" + CLUSTER_NODE_1_HOST + ":" + CLUSTER_NODE_1_PORT));
 
 		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition2 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
-		partition2.setNodeId(CLUSTER_NODE_1.getId());
+		partition2.setNodeId(CLUSTER_NODE_2.getId());
 		partition2.setConnected(true);
 		partition2.setUri(RedisURI.create("redis://" + CLUSTER_NODE_2_HOST + ":" + CLUSTER_NODE_2_PORT));
 
 		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition3 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
-		partition3.setNodeId(CLUSTER_NODE_1.getId());
+		partition3.setNodeId(CLUSTER_NODE_3.getId());
 		partition3.setConnected(true);
 		partition3.setUri(RedisURI.create("redis://" + CLUSTER_NODE_3_HOST + ":" + CLUSTER_NODE_3_PORT));
 
@@ -115,6 +117,7 @@ public class LettuceClusterConnectionUnitTests {
 		connection = new LettuceClusterConnection(clusterMock) {
 
 			@Override
+			@SuppressWarnings("unchecked")
 			public RedisConnection<byte[], byte[]> getResourceForSpecificNode(RedisClusterNode node) {
 
 				if (ObjectUtils.nullSafeEquals(node, CLUSTER_NODE_1)) {
@@ -290,6 +293,90 @@ public class LettuceClusterConnectionUnitTests {
 		when(clusterConnection3Mock.randomkey()).thenReturn(null);
 
 		assertThat(connection.randomKey(), nullValue());
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotImportingShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.IMPORTING);
+
+		verify(clusterConnection1Mock, times(1)).clusterSetSlotImporting(eq(100), eq(CLUSTER_NODE_1.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotMigratingShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.MIGRATING);
+
+		verify(clusterConnection1Mock, times(1)).clusterSetSlotMigrating(eq(100), eq(CLUSTER_NODE_1.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	@Ignore("Stable not available for lettuce")
+	public void clusterSetSlotStableShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.STABLE);
+
+		// verify(clusterConnection1Mock, times(1)).clusterSetSlotStable(eq(100));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotNodeShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.NODE);
+
+		verify(clusterConnection1Mock, times(1)).clusterSetSlotNode(eq(100), eq(CLUSTER_NODE_1.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotShouldBeExecutedOnTargetNodeWhenNodeIdNotSet() {
+
+		connection.clusterSetSlot(new RedisClusterNode(CLUSTER_NODE_1_HOST, CLUSTER_NODE_2_PORT), 100, AddSlots.IMPORTING);
+
+		verify(clusterConnection2Mock, times(1)).clusterSetSlotImporting(eq(100), eq(CLUSTER_NODE_2.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = IllegalArgumentException.class)
+	public void clusterSetSlotShouldThrowExceptionWhenModeIsNull() {
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, null);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterDeleteSlotsShouldBeExecutedCorrectly() {
+
+		int[] slots = new int[] { 9000, 10000 };
+		connection.clusterDeleteSlots(CLUSTER_NODE_2, slots);
+
+		verify(clusterConnection2Mock, times(1)).clusterDelSlots((int[]) anyVararg());
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = IllegalArgumentException.class)
+	public void clusterDeleteSlotShouldThrowExceptionWhenNodeIsNull() {
+		connection.clusterDeleteSlots(null, new int[] { 1 });
 	}
 
 }

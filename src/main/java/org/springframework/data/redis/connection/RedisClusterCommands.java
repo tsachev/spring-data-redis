@@ -18,6 +18,8 @@ package org.springframework.data.redis.connection;
 import java.util.Collection;
 import java.util.List;
 
+import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
+
 /**
  * Interface for the {@literal cluster} commands supported by Redis.
  * 
@@ -50,7 +52,7 @@ public interface RedisClusterCommands {
 	Integer clusterGetSlotForKey(byte[] key);
 
 	/**
-	 * Find the {@link RedisNode} serving given {@literal slot}.
+	 * Find the {@link RedisClusterNode} serving given {@literal slot}.
 	 * 
 	 * @param slot
 	 * @return
@@ -58,7 +60,7 @@ public interface RedisClusterCommands {
 	RedisClusterNode clusterGetNodeForSlot(int slot);
 
 	/**
-	 * Find the {@link RedisNode} serving given {@literal key}.
+	 * Find the {@link RedisClusterNode} serving given {@literal key}.
 	 * 
 	 * @param key must not be {@literal null}.
 	 * @return
@@ -73,12 +75,20 @@ public interface RedisClusterCommands {
 	ClusterInfo clusterGetClusterInfo();
 
 	/**
-	 * Assign slots to given {@link RedisNode}.
+	 * Assign slots to given {@link RedisClusterNode}.
 	 * 
 	 * @param node must not be {@literal null}.
 	 * @param slots
 	 */
 	void clusterAddSlots(RedisClusterNode node, int... slots);
+
+	/**
+	 * Assign {@link SlotRange#getSlotsArray()} to given {@link RedisClusterNode}.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @param range must not be {@literal null}.
+	 */
+	void clusterAddSlots(RedisClusterNode node, SlotRange range);
 
 	/**
 	 * Count the number of keys assigned to one {@literal slot}.
@@ -89,12 +99,20 @@ public interface RedisClusterCommands {
 	Long clusterCountKeysInSlot(int slot);
 
 	/**
-	 * Remove slots from {@link RedisNode}.
+	 * Remove slots from {@link RedisClusterNode}.
 	 * 
 	 * @param node must not be {@literal null}.
 	 * @param slots
 	 */
 	void clusterDeleteSlots(RedisClusterNode node, int... slots);
+
+	/**
+	 * Removes {@link SlotRange#getSlotsArray()} from given {@link RedisClusterNode}.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @param range must not be {@literal null}.
+	 */
+	void clusterDeleteSlotsInRange(RedisClusterNode node, SlotRange range);
 
 	/**
 	 * Remove given {@literal node} from cluster.

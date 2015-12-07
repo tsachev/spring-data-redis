@@ -46,6 +46,7 @@ import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisClusterNode;
+import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisNode;
 import org.springframework.data.redis.connection.RedisPipelineException;
 import org.springframework.data.redis.connection.RedisSentinelConnection;
@@ -61,6 +62,7 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.types.RedisClientInfo;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import redis.clients.jedis.BinaryJedisPubSub;
 import redis.clients.jedis.Jedis;
@@ -3055,13 +3057,31 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 */
 
 	@Override
-	public void clusterSetSlot(RedisClusterNode node, final int slot, final AddSlots mode) {
+	public void clusterSetSlot(final RedisClusterNode node, final int slot, final AddSlots mode) {
 
-		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<Void>() {
+		Assert.notNull(node, "Node must not be null.");
+		Assert.notNull(mode, "AddSlots mode must not be null.");
+
+		final String nodeId = StringUtils.hasText(node.getId()) ? node.getId() : topologyProvider.getTopology()
+				.lookup(node.getHost(), node.getPort()).getId();
+
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
 
 			@Override
-			public Void doInCluster(Jedis client) {
-				throw new RuntimeException();
+			public String doInCluster(Jedis client) {
+
+				switch (mode) {
+					case IMPORTING:
+						return client.clusterSetSlotImporting(slot, nodeId);
+					case MIGRATING:
+						return client.clusterSetSlotMigrating(slot, nodeId);
+					case STABLE:
+						return client.clusterSetSlotStable(slot);
+					case NODE:
+						return client.clusterSetSlotNode(slot, nodeId);
+				}
+
+				throw new IllegalArgumentException(String.format("Unknown AddSlots mode '%s'.", mode));
 			}
 		}, node);
 
@@ -3083,6 +3103,10 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 		return null;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterAddSlots(org.springframework.data.redis.connection.RedisClusterNode, int[])
+	 */
 	@Override
 	public void clusterAddSlots(RedisClusterNode node, final int... slots) {
 
@@ -3097,6 +3121,22 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterAddSlots(org.springframework.data.redis.connection.RedisClusterNode, org.springframework.data.redis.connection.RedisClusterNode.SlotRange)
+	 */
+	@Override
+	public void clusterAddSlots(RedisClusterNode node, SlotRange range) {
+
+		Assert.notNull(range, "Range must not be null.");
+
+		clusterAddSlots(node, range.getSlotsArray());
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterCountKeysInSlot(int)
+	 */
 	@Override
 	public Long clusterCountKeysInSlot(final int slot) {
 
@@ -3124,6 +3164,18 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			}
 		}, node);
 
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisClusterCommands#clusterDeleteSlotsInRange(org.springframework.data.redis.connection.RedisClusterNode, org.springframework.data.redis.connection.RedisClusterNode.SlotRange)
+	 */
+	@Override
+	public void clusterDeleteSlotsInRange(RedisClusterNode node, SlotRange range) {
+
+		Assert.notNull(range, "Range must not be null.");
+
+		clusterDeleteSlots(node, range.getSlotsArray());
 	}
 
 	/*
@@ -3238,6 +3290,36 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 				return new ClusterInfo(JedisConverters.toProperties(client.clusterInfo()));
 			}
 		});
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#migrate(byte[], org.springframework.data.redis.connection.RedisNode, int, org.springframework.data.redis.connection.RedisServerCommands.MigrateOption)
+	 */
+	@Override
+	public void migrate(byte[] key, RedisNode target, int dbIndex, MigrateOption option) {
+		migrate(key, target, dbIndex, option, Long.MAX_VALUE);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisServerCommands#migrate(byte[], org.springframework.data.redis.connection.RedisNode, int, org.springframework.data.redis.connection.RedisServerCommands.MigrateOption, long)
+	 */
+	@Override
+	public void migrate(final byte[] key, final RedisNode target, final int dbIndex, final MigrateOption option,
+			final long timeout) {
+
+		final int timeoutToUse = timeout <= Integer.MAX_VALUE ? (int) timeout : Integer.MAX_VALUE;
+
+		RedisClusterNode node = topologyProvider.getTopology().lookup(target.getHost(), target.getPort());
+
+		clusterCommandExecutor.executeCommandOnSingleNode(new JedisClusterCommandCallback<String>() {
+
+			@Override
+			public String doInCluster(Jedis client) {
+				return client.migrate(JedisConverters.toBytes(target.getHost()), target.getPort(), key, dbIndex, timeoutToUse);
+			}
+		}, node);
 	}
 
 	/*

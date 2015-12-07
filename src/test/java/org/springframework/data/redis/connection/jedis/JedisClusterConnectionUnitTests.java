@@ -17,6 +17,7 @@ package org.springframework.data.redis.connection.jedis;
 
 import static org.hamcrest.core.Is.*;
 import static org.junit.Assert.*;
+import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
@@ -29,6 +30,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.data.redis.connection.ClusterInfo;
+import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisNode.NodeType;
 
@@ -191,6 +193,89 @@ public class JedisClusterConnectionUnitTests {
 
 		ClusterInfo p = connection.clusterGetClusterInfo();
 		assertThat(p.getSlotsAssigned(), is(16384L));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotImportingShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.IMPORTING);
+
+		verify(con1Mock, times(1)).clusterSetSlotImporting(eq(100), eq(CLUSTER_NODE_1.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotMigratingShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.MIGRATING);
+
+		verify(con1Mock, times(1)).clusterSetSlotMigrating(eq(100), eq(CLUSTER_NODE_1.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotStableShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.STABLE);
+
+		verify(con1Mock, times(1)).clusterSetSlotStable(eq(100));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotNodeShouldBeExecutedCorrectly() {
+
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, AddSlots.NODE);
+
+		verify(con1Mock, times(1)).clusterSetSlotNode(eq(100), eq(CLUSTER_NODE_1.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterSetSlotShouldBeExecutedOnTargetNodeWhenNodeIdNotSet() {
+
+		connection.clusterSetSlot(new RedisClusterNode(CLUSTER_NODE_HOST, CLUSTER_NODE_2_PORT), 100, AddSlots.IMPORTING);
+
+		verify(con2Mock, times(1)).clusterSetSlotImporting(eq(100), eq(CLUSTER_NODE_2.getId()));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = IllegalArgumentException.class)
+	public void clusterSetSlotShouldThrowExceptionWhenModeIsNull() {
+		connection.clusterSetSlot(CLUSTER_NODE_1, 100, null);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterDeleteSlotsShouldBeExecutedCorrectly() {
+
+		int[] slots = new int[] { 9000, 10000 };
+		connection.clusterDeleteSlots(CLUSTER_NODE_2, slots);
+
+		verify(con2Mock, times(1)).clusterDelSlots((int[]) anyVararg());
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = IllegalArgumentException.class)
+	public void clusterDeleteSlotShouldThrowExceptionWhenNodeIsNull() {
+		connection.clusterDeleteSlots(null, new int[] { 1 });
 	}
 
 }

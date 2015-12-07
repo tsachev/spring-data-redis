@@ -23,6 +23,7 @@ import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -33,10 +34,12 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisServerCommands.MigrateOption;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
@@ -48,6 +51,9 @@ public class DefaultClusterOperationsUnitTests {
 
 	static final RedisClusterNode NODE_1 = new RedisClusterNode("127.0.0.1", 6379, null)
 			.withId("d1861060fe6a534d42d8a19aeb36600e18785e04");
+
+	static final RedisClusterNode NODE_2 = new RedisClusterNode("127.0.0.1", 6380, null)
+			.withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84");
 
 	@Mock RedisConnectionFactory connectionFactory;
 	@Mock RedisClusterConnection connection;
@@ -347,5 +353,23 @@ public class DefaultClusterOperationsUnitTests {
 	@Test(expected = IllegalArgumentException.class)
 	public void executeShouldThrowExceptionWhenCallbackIsNull() {
 		clusterOps.execute(null);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void reshardShouldExecuteCommandsCorrectly() {
+
+		byte[] key = "foo".getBytes();
+		when(connection.clusterGetKeysInSlot(eq(100), anyInt())).thenReturn(Collections.singletonList(key));
+		clusterOps.reshard(NODE_1, 100, NODE_2);
+
+		verify(connection, times(1)).clusterSetSlot(eq(NODE_2), eq(100), eq(AddSlots.IMPORTING));
+		verify(connection, times(1)).clusterSetSlot(eq(NODE_1), eq(100), eq(AddSlots.MIGRATING));
+		verify(connection, times(1)).clusterGetKeysInSlot(eq(100), anyInt());
+		verify(connection, times(1)).migrate(any(byte[].class), eq(NODE_1), eq(0), eq(MigrateOption.COPY));
+		verify(connection, times(1)).clusterSetSlot(eq(NODE_2), eq(100), eq(AddSlots.NODE));
+
 	}
 }

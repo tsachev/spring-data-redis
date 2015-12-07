@@ -20,6 +20,7 @@ import java.util.Set;
 
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
+import org.springframework.data.redis.connection.RedisConnection;
 
 /**
  * Redis operations for cluster specific operations.
@@ -35,6 +36,7 @@ public interface ClusterOperations<K, V> {
 	 * @param node must not be {@literal null}.
 	 * @param pattern
 	 * @return never {@literal null}.
+	 * @see RedisConnection#keys(byte[])
 	 */
 	Set<K> keys(RedisClusterNode node, K pattern);
 
@@ -43,6 +45,7 @@ public interface ClusterOperations<K, V> {
 	 * 
 	 * @param node must not be {@literal null}.
 	 * @return
+	 * @see RedisConnection#ping()
 	 */
 	String ping(RedisClusterNode node);
 
@@ -51,6 +54,7 @@ public interface ClusterOperations<K, V> {
 	 * 
 	 * @param node must not be {@literal null}.
 	 * @return
+	 * @see RedisConnection#randomKey()
 	 */
 	K randomKey(RedisClusterNode node);
 
@@ -71,43 +75,71 @@ public interface ClusterOperations<K, V> {
 	void addSlots(RedisClusterNode node, SlotRange range);
 
 	/**
-	 * @param node
+	 * tart an {@literal Append Only File} rewrite process on given node.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @see RedisConnection#bgReWriteAof()
 	 */
 	void bgReWriteAof(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * Start background saving of db on given node.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @see RedisConnection#bgSave()
 	 */
 	void bgSave(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * Add the node to cluster.
+	 * 
+	 * @param node must not be {@literal null}.
 	 */
 	void meet(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * Remove the node from the cluster.
+	 * 
+	 * @param node must not be {@literal null}.
 	 */
 	void forget(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * Flush db on node.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @see RedisConnection#flushDb()
 	 */
 	void flushDb(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * @param node must not be {@literal null}.
 	 * @return
 	 */
 	Collection<RedisClusterNode> getSlaves(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * Synchronous save current db snapshot on server.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @see RedisConnection#save()
 	 */
 	void save(RedisClusterNode node);
 
 	/**
-	 * @param node
+	 * Shutdown given node.
+	 * 
+	 * @param node must not be {@literal null}.
+	 * @see RedisConnection#shutdown()
 	 */
 	void shutdown(RedisClusterNode node);
+
+	/**
+	 * Move slot assignment from one source to target node and copy keys associated with the slot.
+	 * 
+	 * @param source must not be {@literal null}.
+	 * @param slot
+	 * @param target must not be {@literal null}.
+	 */
+	void reshard(RedisClusterNode source, int slot, RedisClusterNode target);
 }

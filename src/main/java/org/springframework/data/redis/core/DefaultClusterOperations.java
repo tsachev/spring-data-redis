@@ -16,13 +16,16 @@
 package org.springframework.data.redis.core;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisServerCommands.MigrateOption;
 import org.springframework.util.Assert;
 
 /**
@@ -280,6 +283,34 @@ public class DefaultClusterOperations<K, V> extends AbstractOperations<K, V> imp
 			@Override
 			public Void doInRedis(RedisClusterConnection connection) throws DataAccessException {
 				connection.shutdown(node);
+				return null;
+			}
+		});
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.core.ClusterOperations#reshard(org.springframework.data.redis.connection.RedisClusterNode, int, org.springframework.data.redis.connection.RedisClusterNode)
+	 */
+	@Override
+	public void reshard(final RedisClusterNode source, final int slot, final RedisClusterNode target) {
+
+		Assert.notNull(source, "Source node must not be null.");
+		Assert.notNull(target, "Target node must not be null.");
+
+		execute(new RedisClusterCallback<Void>() {
+
+			@Override
+			public Void doInRedis(RedisClusterConnection connection) throws DataAccessException {
+
+				connection.clusterSetSlot(target, slot, AddSlots.IMPORTING);
+				connection.clusterSetSlot(source, slot, AddSlots.MIGRATING);
+				List<byte[]> keys = connection.clusterGetKeysInSlot(slot, Integer.MAX_VALUE);
+
+				for (byte[] key : keys) {
+					connection.migrate(key, source, 0, MigrateOption.COPY);
+				}
+				connection.clusterSetSlot(target, slot, AddSlots.NODE);
 				return null;
 			}
 		});
