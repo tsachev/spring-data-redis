@@ -15,7 +15,6 @@
  */
 package org.springframework.data.redis.connection;
 
-
 public interface ClusterConnectionTests {
 
 	/**
@@ -863,5 +862,35 @@ public interface ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	public void pfMergeShouldThrowErrorOnDifferentSlotKeys();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void infoShouldCollectInfoForSpecificNode();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void infoShouldCollectInfoForSpecificNodeAndSection();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void getConfigShouldLoadCumulatedConfiguration();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void getConfigShouldLoadConfigurationOfSpecificNode();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void clusterGetSlavesShouldReturnSlaveCorrectly();
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	void clusterGetMasterSlaveMapShouldListMastersAndSlavesCorrectly();
 
 }

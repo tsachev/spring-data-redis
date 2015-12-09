@@ -17,6 +17,7 @@ package org.springframework.data.redis.connection;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 
@@ -42,6 +43,13 @@ public interface RedisClusterCommands {
 	 * @return never {@literal null}.
 	 */
 	Collection<RedisClusterNode> clusterGetSlaves(RedisClusterNode master);
+
+	/**
+	 * Retrieve information about masters and their connected slaves.
+	 * 
+	 * @return never {@literal null}.
+	 */
+	Map<RedisClusterNode, Collection<RedisClusterNode>> clusterGetMasterSlaveMap();
 
 	/**
 	 * Find the slot for a given {@code key}.

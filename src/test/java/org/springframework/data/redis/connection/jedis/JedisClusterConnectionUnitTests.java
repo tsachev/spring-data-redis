@@ -19,9 +19,13 @@ import static org.hamcrest.core.Is.*;
 import static org.junit.Assert.*;
 import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.data.redis.connection.ClusterTestVariables.*;
+import static org.springframework.data.redis.test.util.MockitoUtils.*;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.Before;
@@ -32,7 +36,6 @@ import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.data.redis.connection.ClusterInfo;
 import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterNode;
-import org.springframework.data.redis.connection.RedisNode.NodeType;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisCluster;
@@ -44,33 +47,14 @@ import redis.clients.jedis.JedisPool;
 @RunWith(MockitoJUnitRunner.class)
 public class JedisClusterConnectionUnitTests {
 
-	static final String CLUSTER_NODE_HOST = "127.0.0.1";
-
-	static final int CLUSTER_NODE_1_PORT = 7379;
-	static final int CLUSTER_NODE_2_PORT = 7380;
-	static final int CLUSTER_NODE_3_PORT = 7381;
-
-	static final RedisClusterNode CLUSTER_NODE_1 = new RedisClusterNode(CLUSTER_NODE_HOST, CLUSTER_NODE_1_PORT, null)
-			.withId("ef570f86c7b1a953846668debc177a3a16733420").withType(NodeType.MASTER);
-	static final RedisClusterNode CLUSTER_NODE_2 = new RedisClusterNode(CLUSTER_NODE_HOST, CLUSTER_NODE_2_PORT, null)
-			.withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84").withType(NodeType.MASTER);
-	static final RedisClusterNode CLUSTER_NODE_3 = new RedisClusterNode(CLUSTER_NODE_HOST, CLUSTER_NODE_3_PORT, null)
-			.withId("3b9b8192a874fa8f1f09dbc0ee20afab5738eee7").withType(NodeType.MASTER);
-
-	static final RedisClusterNode UNKNOWN_CLUSTER_NODE = new RedisClusterNode("8.8.8.8", 6379, null);
-
 	private static final String CLUSTER_NODES_RESPONSE = "" //
-			+ "ef570f86c7b1a953846668debc177a3a16733420 " + CLUSTER_NODE_HOST + ":"
-			+ CLUSTER_NODE_1_PORT
+			+ MASTER_NODE_1_ID + " " + CLUSTER_HOST + ":" + MASTER_NODE_1_PORT
 			+ " myself,master - 0 0 1 connected 0-5460"
-			+ System.getProperty("line.separator")
-			+ "0f2ee5df45d18c50aca07228cc18b1da96fd5e84 " + CLUSTER_NODE_HOST + ":"
-			+ CLUSTER_NODE_2_PORT
-			+ " master - 0 1427718161587 2 connected 5461-10922"
-			+ System.getProperty("line.separator")
-			+ "3b9b8192a874fa8f1f09dbc0ee20afab5738eee7 " + CLUSTER_NODE_HOST + ":"
-			+ CLUSTER_NODE_3_PORT
-			+ " master - 0 1427718161587 3 connected 10923-16383";
+			+ System.getProperty("line.separator") + MASTER_NODE_2_ID + " " + CLUSTER_HOST + ":"
+			+ MASTER_NODE_2_PORT
+			+ " master - 0 1427718161587 2 connected 5461-10922" + System.getProperty("line.separator")
+			+ MASTER_NODE_2_ID
+			+ " " + CLUSTER_HOST + ":" + MASTER_NODE_3_PORT + " master - 0 1427718161587 3 connected 10923-16383";
 
 	static final String CLUSTER_INFO_RESPONSE = "cluster_state:ok" + System.getProperty("line.separator")
 			+ "cluster_slots_assigned:16384" + System.getProperty("line.separator") + "cluster_slots_ok:16384"
@@ -97,9 +81,9 @@ public class JedisClusterConnectionUnitTests {
 	public void setUp() {
 
 		Map<String, JedisPool> nodes = new LinkedHashMap<String, JedisPool>(3);
-		nodes.put(CLUSTER_NODE_HOST + ":" + CLUSTER_NODE_1_PORT, node1PoolMock);
-		nodes.put(CLUSTER_NODE_HOST + ":" + CLUSTER_NODE_2_PORT, node2PoolMock);
-		nodes.put(CLUSTER_NODE_HOST + ":" + CLUSTER_NODE_3_PORT, node3PoolMock);
+		nodes.put(CLUSTER_HOST + ":" + MASTER_NODE_1_PORT, node1PoolMock);
+		nodes.put(CLUSTER_HOST + ":" + MASTER_NODE_2_PORT, node2PoolMock);
+		nodes.put(CLUSTER_HOST + ":" + MASTER_NODE_3_PORT, node3PoolMock);
 
 		when(clusterMock.getClusterNodes()).thenReturn(nodes);
 		when(node1PoolMock.getResource()).thenReturn(con1Mock);
@@ -193,6 +177,8 @@ public class JedisClusterConnectionUnitTests {
 
 		ClusterInfo p = connection.clusterGetClusterInfo();
 		assertThat(p.getSlotsAssigned(), is(16384L));
+
+		verifyInvocationsAcross("clusterInfo", times(1), con1Mock, con2Mock, con3Mock);
 	}
 
 	/**
@@ -245,7 +231,7 @@ public class JedisClusterConnectionUnitTests {
 	@Test
 	public void clusterSetSlotShouldBeExecutedOnTargetNodeWhenNodeIdNotSet() {
 
-		connection.clusterSetSlot(new RedisClusterNode(CLUSTER_NODE_HOST, CLUSTER_NODE_2_PORT), 100, AddSlots.IMPORTING);
+		connection.clusterSetSlot(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_2_PORT), 100, AddSlots.IMPORTING);
 
 		verify(con2Mock, times(1)).clusterSetSlotImporting(eq(100), eq(CLUSTER_NODE_2.getId()));
 	}
@@ -276,6 +262,62 @@ public class JedisClusterConnectionUnitTests {
 	@Test(expected = IllegalArgumentException.class)
 	public void clusterDeleteSlotShouldThrowExceptionWhenNodeIsNull() {
 		connection.clusterDeleteSlots(null, new int[] { 1 });
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void timeShouldBeExecutedOnArbitraryNode() {
+
+		List<String> values = Arrays.asList("1449655759", "92217");
+		when(con1Mock.time()).thenReturn(values);
+		when(con2Mock.time()).thenReturn(values);
+		when(con3Mock.time()).thenReturn(values);
+
+		connection.time();
+
+		verifyInvocationsAcross("time", times(1), con1Mock, con2Mock, con3Mock);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void timeShouldBeExecutedOnSingleNode() {
+
+		when(con2Mock.time()).thenReturn(Arrays.asList("1449655759", "92217"));
+
+		connection.time(CLUSTER_NODE_2);
+
+		verify(con2Mock, times(1)).time();
+		verifyZeroInteractions(con1Mock, con3Mock);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void resetConfigStatsShouldBeExecutedOnAllNodes() {
+
+		connection.resetConfigStats();
+
+		verify(con1Mock, times(1)).configResetStat();
+		verify(con2Mock, times(1)).configResetStat();
+		verify(con3Mock, times(1)).configResetStat();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void resetConfigStatsShouldBeExecutedOnSingleNodeCorrectly() {
+
+		connection.resetConfigStats(CLUSTER_NODE_2);
+
+		verify(con2Mock, times(1)).configResetStat();
+		verify(con1Mock, never()).configResetStat();
+		verify(con3Mock, never()).configResetStat();
 	}
 
 }

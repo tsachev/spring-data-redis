@@ -21,12 +21,15 @@ import static org.springframework.data.redis.connection.ClusterTestVariables.*;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import org.junit.After;
@@ -2211,4 +2214,97 @@ public class JedisClusterConnectionTests implements ClusterConnectionTests {
 		clusterConnection.pfMerge(KEY_3_BYTES, KEY_1_BYTES, KEY_2_BYTES);
 	}
 
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void infoShouldCollectInfoForSpecificNode() {
+
+		Properties properties = clusterConnection.info(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_2_PORT));
+
+		assertThat(properties.getProperty("tcp_port"), is(Integer.toString(MASTER_NODE_2_PORT)));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void infoShouldCollectInfoForSpecificNodeAndSection() {
+
+		Properties properties = clusterConnection.info(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_2_PORT), "server");
+
+		assertThat(properties.getProperty("tcp_port"), is(Integer.toString(MASTER_NODE_2_PORT)));
+		assertThat(properties.getProperty("used_memory"), nullValue());
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void getConfigShouldLoadCumulatedConfiguration() {
+
+		List<String> result = clusterConnection.getConfig("*max-*-entries*");
+
+		assertThat(result.size(), is(24));
+		for (int i = 0; i < result.size(); i++) {
+
+			if (i % 2 == 0) {
+				assertThat(result.get(i), startsWith(CLUSTER_HOST));
+			} else {
+				assertThat(result.get(i), not(startsWith(CLUSTER_HOST)));
+			}
+		}
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void getConfigShouldLoadConfigurationOfSpecificNode() {
+
+		List<String> result = clusterConnection.getConfig(new RedisClusterNode(CLUSTER_HOST, SLAVEOF_NODE_1_PORT), "*");
+
+		ListIterator<String> it = result.listIterator();
+		Integer valueIndex = null;
+		while (it.hasNext()) {
+
+			String cur = it.next();
+			if (cur.equals("slaveof")) {
+				valueIndex = it.nextIndex();
+				break;
+			}
+		}
+
+		assertThat(valueIndex, notNullValue());
+		assertThat(result.get(valueIndex), endsWith("7379"));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterGetSlavesShouldReturnSlaveCorrectly() {
+
+		Set<RedisClusterNode> slaves = clusterConnection.clusterGetSlaves(new RedisClusterNode(CLUSTER_HOST,
+				MASTER_NODE_1_PORT));
+
+		assertThat(slaves.size(), is(1));
+		assertThat(slaves, hasItem(new RedisClusterNode(CLUSTER_HOST, SLAVEOF_NODE_1_PORT)));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterGetMasterSlaveMapShouldListMastersAndSlavesCorrectly() {
+
+		Map<RedisClusterNode, Collection<RedisClusterNode>> masterSlaveMap = clusterConnection.clusterGetMasterSlaveMap();
+
+		assertThat(masterSlaveMap, notNullValue());
+		assertThat(masterSlaveMap.size(), is(3));
+		assertThat(masterSlaveMap.get(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_1_PORT)),
+				hasItem(new RedisClusterNode(CLUSTER_HOST, SLAVEOF_NODE_1_PORT)));
+		assertThat(masterSlaveMap.get(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_2_PORT)).isEmpty(), is(true));
+		assertThat(masterSlaveMap.get(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_3_PORT)).isEmpty(), is(true));
+	}
 }

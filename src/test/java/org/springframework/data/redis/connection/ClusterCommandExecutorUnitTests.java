@@ -20,6 +20,7 @@ import static org.hamcrest.core.IsCollectionContaining.*;
 import static org.junit.Assert.*;
 import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.data.redis.test.util.MockitoUtils.*;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -286,6 +287,17 @@ public class ClusterCommandExecutorUnitTests {
 		verify(con1, times(2)).theWheelWeavesAsTheWheelWills();
 		verify(con3, times(2)).theWheelWeavesAsTheWheelWills();
 		verify(con2, times(1)).theWheelWeavesAsTheWheelWills();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void executeCommandOnArbitraryNodeShouldPickARandomNode() {
+
+		executor.executeCommandOnArbitraryNode(COMMAND_CALLBACK);
+
+		verifyInvocationsAcross("theWheelWeavesAsTheWheelWills", times(1), con1, con2, con3);
 	}
 
 	class MockClusterNodeProvider implements ClusterTopologyProvider {

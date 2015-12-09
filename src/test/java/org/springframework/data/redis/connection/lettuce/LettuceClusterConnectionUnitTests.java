@@ -21,6 +21,8 @@ import static org.hamcrest.core.IsNull.*;
 import static org.junit.Assert.*;
 import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.data.redis.connection.ClusterTestVariables.*;
+import static org.springframework.data.redis.test.util.MockitoUtils.*;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -35,7 +37,6 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterNode;
-import org.springframework.data.redis.connection.RedisNode.NodeType;
 import org.springframework.util.ObjectUtils;
 
 import com.lambdaworks.redis.RedisAsyncConnection;
@@ -50,34 +51,13 @@ import com.lambdaworks.redis.cluster.models.partitions.Partitions;
 @RunWith(MockitoJUnitRunner.class)
 public class LettuceClusterConnectionUnitTests {
 
-	static final String KEY_1 = "key-1";
 	static final byte[] KEY_1_BYTES = KEY_1.getBytes();
 
-	static final String VALUE_1 = "value-1";
 	static final byte[] VALUE_1_BYTES = VALUE_1.getBytes();
 
-	static final String KEY_2 = "key-2";
 	static final byte[] KEY_2_BYTES = KEY_2.getBytes();
 
-	static final String KEY_3 = "key-3";
 	static final byte[] KEY_3_BYTES = KEY_3.getBytes();
-
-	static final String CLUSTER_NODE_1_HOST = "127.0.0.1";
-	static final String CLUSTER_NODE_2_HOST = "127.0.0.1";
-	static final String CLUSTER_NODE_3_HOST = "127.0.0.1";
-
-	static final int CLUSTER_NODE_1_PORT = 6379;
-	static final int CLUSTER_NODE_2_PORT = 6380;
-	static final int CLUSTER_NODE_3_PORT = 6381;
-
-	static final RedisClusterNode CLUSTER_NODE_1 = new RedisClusterNode(CLUSTER_NODE_1_HOST, CLUSTER_NODE_1_PORT, null)
-			.withId("ef570f86c7b1a953846668debc177a3a16733420").withType(NodeType.MASTER);
-	static final RedisClusterNode CLUSTER_NODE_2 = new RedisClusterNode(CLUSTER_NODE_2_HOST, CLUSTER_NODE_2_PORT, null)
-			.withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84").withType(NodeType.MASTER);
-	static final RedisClusterNode CLUSTER_NODE_3 = new RedisClusterNode(CLUSTER_NODE_3_HOST, CLUSTER_NODE_3_PORT, null)
-			.withId("3b9b8192a874fa8f1f09dbc0ee20afab5738eee7").withType(NodeType.MASTER);
-
-	static final RedisClusterNode UNKNOWN_CLUSTER_NODE = new RedisClusterNode("8.8.8.8", 6379, null);
 
 	@Mock RedisClusterClient clusterMock;
 
@@ -96,17 +76,17 @@ public class LettuceClusterConnectionUnitTests {
 		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition1 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
 		partition1.setNodeId(CLUSTER_NODE_1.getId());
 		partition1.setConnected(true);
-		partition1.setUri(RedisURI.create("redis://" + CLUSTER_NODE_1_HOST + ":" + CLUSTER_NODE_1_PORT));
+		partition1.setUri(RedisURI.create("redis://" + CLUSTER_HOST + ":" + MASTER_NODE_1_PORT));
 
 		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition2 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
 		partition2.setNodeId(CLUSTER_NODE_2.getId());
 		partition2.setConnected(true);
-		partition2.setUri(RedisURI.create("redis://" + CLUSTER_NODE_2_HOST + ":" + CLUSTER_NODE_2_PORT));
+		partition2.setUri(RedisURI.create("redis://" + CLUSTER_HOST + ":" + MASTER_NODE_2_PORT));
 
 		com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode partition3 = new com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode();
 		partition3.setNodeId(CLUSTER_NODE_3.getId());
 		partition3.setConnected(true);
-		partition3.setUri(RedisURI.create("redis://" + CLUSTER_NODE_3_HOST + ":" + CLUSTER_NODE_3_PORT));
+		partition3.setUri(RedisURI.create("redis://" + CLUSTER_HOST + ":" + MASTER_NODE_3_PORT));
 
 		partitions.addPartition(partition1);
 		partitions.addPartition(partition2);
@@ -267,6 +247,8 @@ public class LettuceClusterConnectionUnitTests {
 		when(clusterConnection3Mock.randomkey()).thenReturn(KEY_3_BYTES);
 
 		assertThat(connection.randomKey(), anyOf(is(KEY_1_BYTES), is(KEY_2_BYTES), is(KEY_3_BYTES)));
+		verifyInvocationsAcross("randomkey", times(1), clusterConnection1Mock, clusterConnection2Mock,
+				clusterConnection3Mock);
 	}
 
 	/**
@@ -346,7 +328,7 @@ public class LettuceClusterConnectionUnitTests {
 	@Test
 	public void clusterSetSlotShouldBeExecutedOnTargetNodeWhenNodeIdNotSet() {
 
-		connection.clusterSetSlot(new RedisClusterNode(CLUSTER_NODE_1_HOST, CLUSTER_NODE_2_PORT), 100, AddSlots.IMPORTING);
+		connection.clusterSetSlot(new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_2_PORT), 100, AddSlots.IMPORTING);
 
 		verify(clusterConnection2Mock, times(1)).clusterSetSlotImporting(eq(100), eq(CLUSTER_NODE_2.getId()));
 	}
@@ -377,6 +359,62 @@ public class LettuceClusterConnectionUnitTests {
 	@Test(expected = IllegalArgumentException.class)
 	public void clusterDeleteSlotShouldThrowExceptionWhenNodeIsNull() {
 		connection.clusterDeleteSlots(null, new int[] { 1 });
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void timeShouldBeExecutedOnArbitraryNode() {
+
+		List<byte[]> values = Arrays.asList("1449655759".getBytes(), "92217".getBytes());
+		when(clusterConnection1Mock.time()).thenReturn(values);
+		when(clusterConnection2Mock.time()).thenReturn(values);
+		when(clusterConnection3Mock.time()).thenReturn(values);
+
+		connection.time();
+
+		verifyInvocationsAcross("time", times(1), clusterConnection1Mock, clusterConnection2Mock, clusterConnection3Mock);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void timeShouldBeExecutedOnSingleNode() {
+
+		when(clusterConnection2Mock.time()).thenReturn(Arrays.asList("1449655759".getBytes(), "92217".getBytes()));
+
+		connection.time(CLUSTER_NODE_2);
+
+		verify(clusterConnection2Mock, times(1)).time();
+		verifyZeroInteractions(clusterConnection1Mock, clusterConnection3Mock);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void resetConfigStatsShouldBeExecutedOnAllNodes() {
+
+		connection.resetConfigStats();
+
+		verify(clusterConnection1Mock, times(1)).configResetstat();
+		verify(clusterConnection2Mock, times(1)).configResetstat();
+		verify(clusterConnection3Mock, times(1)).configResetstat();
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void resetConfigStatsShouldBeExecutedOnSingleNodeCorrectly() {
+
+		connection.resetConfigStats(CLUSTER_NODE_2);
+
+		verify(clusterConnection2Mock, times(1)).configResetstat();
+		verify(clusterConnection1Mock, never()).configResetstat();
+		verify(clusterConnection1Mock, never()).configResetstat();
 	}
 
 }
