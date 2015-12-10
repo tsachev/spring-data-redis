@@ -25,12 +25,14 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.Pool;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
+import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisNode;
@@ -144,12 +146,26 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 	public RedisConnection getConnection() {
 
 		if (isClusterAware()) {
-			return new LettuceClusterConnection((RedisClusterClient) client);
+			return getClusterConnection();
 		}
 
 		LettuceConnection connection = new LettuceConnection(getSharedConnection(), timeout, client, pool, dbIndex);
 		connection.setConvertPipelineAndTxResults(convertPipelineAndTxResults);
 		return connection;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnectionFactory#getClusterConnection()
+	 */
+	@Override
+	public RedisClusterConnection getClusterConnection() {
+
+		if (!isClusterAware()) {
+			throw new InvalidDataAccessApiUsageException("Cluster is not configured!");
+		}
+
+		return new LettuceClusterConnection((RedisClusterClient) client);
 	}
 
 	public void initConnection() {

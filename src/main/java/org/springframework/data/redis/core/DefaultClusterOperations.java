@@ -24,7 +24,6 @@ import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisClusterNode;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
-import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisServerCommands.MigrateOption;
 import org.springframework.util.Assert;
 
@@ -326,24 +325,12 @@ public class DefaultClusterOperations<K, V> extends AbstractOperations<K, V> imp
 
 		Assert.notNull(callback, "ClusterCallback must not be null!");
 
-		RedisClusterConnection connection = getConnection();
+		RedisClusterConnection connection = template.getConnectionFactory().getClusterConnection();
 
 		try {
 			return callback.doInRedis(connection);
 		} finally {
 			connection.close();
 		}
-	}
-
-	/**
-	 * @return
-	 */
-	private RedisClusterConnection getConnection() {
-
-		RedisConnection connection = template.getConnectionFactory().getConnection();
-		Assert.isInstanceOf(RedisClusterConnection.class, connection,
-				"ConnectionFactory must be configured for cluster environment!");
-
-		return (RedisClusterConnection) connection;
 	}
 }

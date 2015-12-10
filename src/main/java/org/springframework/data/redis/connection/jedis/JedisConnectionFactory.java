@@ -28,11 +28,13 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
+import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisNode;
@@ -322,7 +324,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 	public RedisConnection getConnection() {
 
 		if (cluster != null) {
-			return new JedisClusterConnection(cluster);
+			return getClusterConnection();
 		}
 
 		Jedis jedis = fetchJedisConnector();
@@ -330,6 +332,19 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 				null, dbIndex));
 		connection.setConvertPipelineAndTxResults(convertPipelineAndTxResults);
 		return postProcessConnection(connection);
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisConnectionFactory#getClusterConnection()
+	 */
+	@Override
+	public RedisClusterConnection getClusterConnection() {
+
+		if (cluster == null) {
+			throw new InvalidDataAccessApiUsageException("Cluster is not configured!");
+		}
+		return new JedisClusterConnection(cluster);
 	}
 
 	/*

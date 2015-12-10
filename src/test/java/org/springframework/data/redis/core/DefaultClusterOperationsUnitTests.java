@@ -66,6 +66,7 @@ public class DefaultClusterOperationsUnitTests {
 	public void setUp() {
 
 		when(connectionFactory.getConnection()).thenReturn(connection);
+		when(connectionFactory.getClusterConnection()).thenReturn(connection);
 
 		serializer = new StringRedisSerializer();
 
