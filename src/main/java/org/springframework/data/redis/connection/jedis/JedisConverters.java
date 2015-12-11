@@ -18,9 +18,7 @@ package org.springframework.data.redis.connection.jedis;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,9 +27,7 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.DefaultTuple;
 import org.springframework.data.redis.connection.RedisClusterNode;
-import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisListCommands.Position;
-import org.springframework.data.redis.connection.RedisNode.NodeType;
 import org.springframework.data.redis.connection.RedisServer;
 import org.springframework.data.redis.connection.RedisStringCommands.BitOperation;
 import org.springframework.data.redis.connection.RedisZSetCommands.Range.Boundary;
@@ -74,7 +70,6 @@ abstract public class JedisConverters extends Converters {
 	private static final Converter<redis.clients.jedis.Tuple, Tuple> TUPLE_CONVERTER;
 	private static final ListConverter<redis.clients.jedis.Tuple, Tuple> TUPLE_LIST_TO_TUPLE_LIST_CONVERTER;
 	private static final Converter<Object, RedisClusterNode> OBJECT_TO_CLUSTER_NODE_CONVERTER;
-	private static final Converter<String, RedisClusterNode> STRING_TO_CLUSTER_NODE_CONVERTER;
 
 	public static final byte[] PLUS_BYTES;
 	public static final byte[] MINUS_BYTES;
@@ -116,51 +111,6 @@ abstract public class JedisConverters extends Converters {
 				return new RedisClusterNode(JedisConverters.toString((byte[]) nodeInfo.get(0)),
 						((Number) nodeInfo.get(1)).intValue(), range);
 			}
-		};
-
-		STRING_TO_CLUSTER_NODE_CONVERTER = new Converter<String, RedisClusterNode>() {
-
-			static final int ID_INDEX = 0;
-			static final int HOST_PORT_INDEX = 1;
-			static final int FLAGS_INDEX = 2;
-			static final int MASTER_ID_INDEX = 3;
-			static final int SLOTS_INDEX = 8;
-
-			@Override
-			public RedisClusterNode convert(String source) {
-
-				String[] args = source.split(" ");
-				String[] hostAndPort = StringUtils.split(args[HOST_PORT_INDEX], ":");
-
-				SlotRange range = null;
-				if (args.length > SLOTS_INDEX) {
-					if (args[SLOTS_INDEX].contains("-")) {
-						String[] slotRange = StringUtils.split(args[SLOTS_INDEX], "-");
-
-						if (slotRange != null) {
-							range = new RedisClusterNode.SlotRange(Integer.valueOf(slotRange[0]), Integer.valueOf(slotRange[1]));
-						}
-					} else {
-						range = new SlotRange(Integer.valueOf(args[SLOTS_INDEX]), Integer.valueOf(args[SLOTS_INDEX]));
-					}
-				}
-
-				RedisClusterNode node = new RedisClusterNode(hostAndPort[0], Integer.valueOf(hostAndPort[1]), range);
-				node.setId(args[ID_INDEX]);
-
-				if (!args[MASTER_ID_INDEX].isEmpty() && !args[MASTER_ID_INDEX].startsWith("-")) {
-					node.setMasterId(args[MASTER_ID_INDEX]);
-				}
-
-				if (args[FLAGS_INDEX].contains("master")) {
-					node.setType(NodeType.MASTER);
-				} else if (args[FLAGS_INDEX].contains("slave")) {
-					node.setType(NodeType.SLAVE);
-				}
-
-				return node;
-			}
-
 		};
 	}
 
@@ -288,26 +238,6 @@ abstract public class JedisConverters extends Converters {
 
 		String[] lines = clusterNodes.split(System.getProperty("line.separator"));
 		return toSetOfRedisClusterNodes(Arrays.asList(lines));
-	}
-
-	/**
-	 * @param clusterNodes
-	 * @return
-	 * @since 1.7
-	 */
-	public static Set<RedisClusterNode> toSetOfRedisClusterNodes(Collection<String> lines) {
-
-		if (CollectionUtils.isEmpty(lines)) {
-			return Collections.emptySet();
-		}
-
-		Set<RedisClusterNode> nodes = new LinkedHashSet<RedisClusterNode>(lines.size());
-
-		for (String line : lines) {
-			nodes.add(STRING_TO_CLUSTER_NODE_CONVERTER.convert(line));
-		}
-
-		return nodes;
 	}
 
 	public static DataAccessException toDataAccessException(Exception ex) {
