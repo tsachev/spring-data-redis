@@ -2129,7 +2129,7 @@ public class LettuceClusterConnectionTests implements ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	@Ignore("Should work in 3.4 but does not work in 3.3.1")
+	@Ignore("Should work in 3.4 but does not work in 3.3.2")
 	public void countKeysShouldReturnNumberOfKeysInSlot() {
 
 		nativeConnection.set(SAME_SLOT_KEY_1, VALUE_1);
@@ -2188,7 +2188,6 @@ public class LettuceClusterConnectionTests implements ClusterConnectionTests {
 	 * @see DATAREDIS-315
 	 */
 	@Test
-	@Ignore("Expected to work but lettuce only take source key at index zero")
 	public void pfMergeShouldWorkWhenAllKeysMapToSameSlot() {
 
 		nativeConnection.pfadd(SAME_SLOT_KEY_1, VALUE_1, VALUE_2);
