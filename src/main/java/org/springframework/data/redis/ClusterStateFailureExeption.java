@@ -18,6 +18,10 @@ package org.springframework.data.redis;
 import org.springframework.dao.DataAccessResourceFailureException;
 
 /**
+ * {@link DataAccessResourceFailureException} indicating the current local snapshot of cluster state does no longer
+ * represent the actual remote state. This can happen nodes are removed from cluster, slots get migrated to other nodes
+ * and so on.
+ * 
  * @author Christoph Strobl
  * @since 1.7
  */
@@ -25,10 +29,21 @@ public class ClusterStateFailureExeption extends DataAccessResourceFailureExcept
 
 	private static final long serialVersionUID = 333399051713240852L;
 
+	/**
+	 * Creates new {@link ClusterStateFailureExeption}.
+	 * 
+	 * @param msg
+	 */
 	public ClusterStateFailureExeption(String msg) {
 		super(msg);
 	}
 
+	/**
+	 * Creates new {@link ClusterStateFailureExeption}.
+	 * 
+	 * @param msg
+	 * @param cause
+	 */
 	public ClusterStateFailureExeption(String msg, Throwable cause) {
 		super(msg, cause);
 	}

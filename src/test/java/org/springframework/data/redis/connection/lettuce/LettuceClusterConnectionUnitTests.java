@@ -35,9 +35,10 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.data.redis.connection.ClusterCommandExecutor;
+import org.springframework.data.redis.connection.ClusterNodeResourceProvider;
 import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterNode;
-import org.springframework.util.ObjectUtils;
 
 import com.lambdaworks.redis.RedisAsyncConnection;
 import com.lambdaworks.redis.RedisConnection;
@@ -61,6 +62,7 @@ public class LettuceClusterConnectionUnitTests {
 
 	@Mock RedisClusterClient clusterMock;
 
+	@Mock ClusterNodeResourceProvider resourceProvider;
 	@Mock RedisAsyncConnection<byte[], byte[]> dedicatedConnectionMock;
 	@Mock RedisConnection<byte[], byte[]> clusterConnection1Mock;
 	@Mock RedisConnection<byte[], byte[]> clusterConnection2Mock;
@@ -92,28 +94,17 @@ public class LettuceClusterConnectionUnitTests {
 		partitions.addPartition(partition2);
 		partitions.addPartition(partition3);
 
+		when(resourceProvider.getResourceForSpecificNode(CLUSTER_NODE_1)).thenReturn(clusterConnection1Mock);
+		when(resourceProvider.getResourceForSpecificNode(CLUSTER_NODE_2)).thenReturn(clusterConnection2Mock);
+		when(resourceProvider.getResourceForSpecificNode(CLUSTER_NODE_3)).thenReturn(clusterConnection3Mock);
+
 		when(clusterMock.getPartitions()).thenReturn(partitions);
 
-		connection = new LettuceClusterConnection(clusterMock) {
+		ClusterCommandExecutor executor = new ClusterCommandExecutor(
+				new LettuceClusterConnection.LettuceClusterTopologyProvider(clusterMock), resourceProvider,
+				LettuceClusterConnection.exceptionConverter);
 
-			@Override
-			@SuppressWarnings("unchecked")
-			public RedisConnection<byte[], byte[]> getResourceForSpecificNode(RedisClusterNode node) {
-
-				if (ObjectUtils.nullSafeEquals(node, CLUSTER_NODE_1)) {
-					return clusterConnection1Mock;
-				}
-
-				if (ObjectUtils.nullSafeEquals(node, CLUSTER_NODE_2)) {
-					return clusterConnection2Mock;
-				}
-
-				if (ObjectUtils.nullSafeEquals(node, CLUSTER_NODE_3)) {
-					return clusterConnection3Mock;
-				}
-
-				return null;
-			}
+		connection = new LettuceClusterConnection(clusterMock, executor) {
 
 			@Override
 			protected RedisAsyncConnection<byte[], byte[]> getAsyncDedicatedConnection() {
@@ -125,6 +116,14 @@ public class LettuceClusterConnectionUnitTests {
 				return Arrays.asList(CLUSTER_NODE_1, CLUSTER_NODE_2, CLUSTER_NODE_3);
 			}
 		};
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test(expected = IllegalArgumentException.class)
+	public void thowsExceptionWhenClusterCommandExecturorIsNull() {
+		new LettuceClusterConnection(clusterMock, null);
 	}
 
 	/**

@@ -98,6 +98,14 @@ public class JedisClusterConnectionUnitTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
+	@Test(expected = IllegalArgumentException.class)
+	public void thowsExceptionWhenClusterCommandExecturorIsNull() {
+		new JedisClusterConnection(clusterMock, null);
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
 	@Test
 	public void clusterMeetShouldSendCommandsToExistingNodesCorrectly() {
 

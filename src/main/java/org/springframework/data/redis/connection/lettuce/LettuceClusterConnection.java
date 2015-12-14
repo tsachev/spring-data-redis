@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -73,14 +72,13 @@ import com.lambdaworks.redis.codec.RedisCodec;
  * @since 1.7
  */
 public class LettuceClusterConnection extends LettuceConnection implements
-		org.springframework.data.redis.connection.RedisClusterConnection, ClusterNodeResourceProvider {
+		org.springframework.data.redis.connection.RedisClusterConnection {
 
 	static final ExceptionTranslationStrategy exceptionConverter = new PassThroughExceptionTranslationStrategy(
 			new LettuceExceptionConverter());
 	static final RedisCodec<byte[], byte[]> CODEC = new BytesRedisCodec();
 
 	private final RedisClusterClient clusterClient;
-	private Map<RedisClusterNode, RedisClusterConnection<byte[], byte[]>> connections;
 	private ClusterCommandExecutor clusterCommandExecutor;
 	private ClusterTopologyProvider topologyProvider;
 
@@ -93,10 +91,31 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 		super(null, 100, clusterClient, null, 0);
 
+		Assert.notNull(clusterClient, "RedisClusterClient must not be null.");
+
 		this.clusterClient = clusterClient;
-		connections = new HashMap<RedisClusterNode, RedisClusterConnection<byte[], byte[]>>(1);
 		topologyProvider = new LettuceClusterTopologyProvider(clusterClient);
-		clusterCommandExecutor = new ClusterCommandExecutor(topologyProvider, this, exceptionConverter);
+		clusterCommandExecutor = new ClusterCommandExecutor(topologyProvider, new LettuceClusterNodeResourceProvider(
+				clusterClient), exceptionConverter);
+	}
+
+	/**
+	 * Creates new {@link LettuceClusterConnection} using {@link RedisClusterClient} running commands across the cluster
+	 * via given {@link ClusterCommandExecutor}.
+	 * 
+	 * @param clusterClient must not be {@literal null}.
+	 * @param executor must not be {@literal null}.
+	 */
+	public LettuceClusterConnection(RedisClusterClient clusterClient, ClusterCommandExecutor executor) {
+
+		super(null, 100, clusterClient, null, 0);
+
+		Assert.notNull(clusterClient, "RedisClusterClient must not be null.");
+		Assert.notNull(executor, "ClusterCommandExecutor must not be null.");
+
+		this.clusterClient = clusterClient;
+		topologyProvider = new LettuceClusterTopologyProvider(clusterClient);
+		clusterCommandExecutor = executor;
 	}
 
 	/*
@@ -1220,53 +1239,6 @@ public class LettuceClusterConnection extends LettuceConnection implements
 
 	/*
 	 * (non-Javadoc)
-	 * @see org.springframework.data.redis.connection.ClusterNodeResourceProvider#getResourceForSpecificNode(org.springframework.data.redis.connection.RedisClusterNode)
-	 */
-	@Override
-	@SuppressWarnings("unchecked")
-	public RedisClusterConnection<byte[], byte[]> getResourceForSpecificNode(RedisClusterNode node) {
-
-		Assert.notNull(node, "Node must not be null!");
-
-		if (this.connections.containsKey(node)) {
-			return this.connections.get(node);
-		}
-
-		try {
-			RedisClusterConnection<byte[], byte[]> connection = clusterClient.connectCluster(CODEC).getConnection(
-					node.getHost(), node.getPort());
-			this.connections.put(node, connection);
-			return connection;
-		} catch (RedisException e) {
-
-			// unwrap cause when cluster node not known in cluster
-			if (e.getCause() instanceof IllegalArgumentException) {
-				throw (IllegalArgumentException) e.getCause();
-			}
-			throw e;
-		}
-	}
-
-	/*
-	 * (non-Javadoc)
-	 * @see org.springframework.data.redis.connection.lettuce.LettuceConnection#close()
-	 */
-	public void close() {
-
-		super.close();
-		try {
-			this.clusterCommandExecutor.destroy();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-
-		for (RedisClusterConnection<byte[], byte[]> connection : this.connections.values()) {
-			connection.close();
-		}
-	}
-
-	/*
-	 * (non-Javadoc)
 	 * @see org.springframework.data.redis.connection.lettuce.LettuceConnection#pfCount(byte[][])
 	 */
 	@Override
@@ -1519,15 +1491,6 @@ public class LettuceClusterConnection extends LettuceConnection implements
 				}, topologyProvider.getTopology().getMasterNodes());
 	}
 
-	/*
-	 * (non-Javadoc)
-	 * @see org.springframework.data.redis.connection.ClusterNodeResourceProvider#returnResourceForSpecificNode(org.springframework.data.redis.connection.RedisClusterNode, java.lang.Object)
-	 */
-	@Override
-	public void returnResourceForSpecificNode(RedisClusterNode node, Object resource) {
-		// nothing to do here!
-	}
-
 	/**
 	 * Lettuce specific implementation of {@link ClusterCommandCallback}.
 	 * 
@@ -1547,6 +1510,51 @@ public class LettuceClusterConnection extends LettuceConnection implements
 	 */
 	protected interface LettuceMultiKeyClusterCommandCallback<T> extends
 			MultiKeyClusterCommandCallback<RedisClusterConnection<byte[], byte[]>, T> {
+
+	}
+
+	/**
+	 * Lettuce specific implementation of {@link ClusterNodeResourceProvider}.
+	 * 
+	 * @author Christoph Strobl
+	 * @since 1.7
+	 */
+	static class LettuceClusterNodeResourceProvider implements ClusterNodeResourceProvider {
+
+		private final RedisClusterClient client;
+
+		public LettuceClusterNodeResourceProvider(RedisClusterClient client) {
+
+			this.client = client;
+		}
+
+		@Override
+		@SuppressWarnings("unchecked")
+		public RedisClusterConnection<byte[], byte[]> getResourceForSpecificNode(RedisClusterNode node) {
+
+			Assert.notNull(node, "Node must not be null!");
+
+			try {
+				RedisClusterConnection<byte[], byte[]> connection = client.connectCluster(CODEC).getConnection(node.getHost(),
+						node.getPort());
+				return connection;
+			} catch (RedisException e) {
+
+				// unwrap cause when cluster node not known in cluster
+				if (e.getCause() instanceof IllegalArgumentException) {
+					throw (IllegalArgumentException) e.getCause();
+				}
+				throw e;
+			}
+		}
+
+		@Override
+		@SuppressWarnings("unchecked")
+		public void returnResourceForSpecificNode(RedisClusterNode node, Object resource) {
+
+			RedisClusterConnection<byte[], byte[]> connection = (RedisClusterConnection<byte[], byte[]>) resource;
+			connection.close();
+		}
 
 	}
 

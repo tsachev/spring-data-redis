@@ -79,7 +79,7 @@ import redis.clients.jedis.ZParams;
  * @author Christoph Strobl
  * @since 1.7
  */
-public class JedisClusterConnection implements RedisClusterConnection, ClusterNodeResourceProvider {
+public class JedisClusterConnection implements RedisClusterConnection {
 
 	private static final ExceptionTranslationStrategy EXCEPTION_TRANSLATION = new PassThroughExceptionTranslationStrategy(
 			JedisConverters.exceptionConverter());
@@ -101,11 +101,13 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	public JedisClusterConnection(JedisCluster cluster) {
 
 		Assert.notNull(cluster, "JedisCluster must not be null.");
+
 		this.cluster = cluster;
 
 		closed = false;
 		topologyProvider = new JedisClusterTopologyProvider(cluster);
-		clusterCommandExecutor = new ClusterCommandExecutor(topologyProvider, this, EXCEPTION_TRANSLATION);
+		clusterCommandExecutor = new ClusterCommandExecutor(topologyProvider,
+				new JedisClusterNodeResourceProvider(cluster), EXCEPTION_TRANSLATION);
 
 		try {
 			DirectFieldAccessor dfa = new DirectFieldAccessor(cluster);
@@ -114,6 +116,24 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 			// ignore it and work with the executor default
 		}
 
+	}
+
+	/**
+	 * Create new {@link JedisClusterConnection} utilizing native connections via {@link JedisCluster} running commands
+	 * across the cluster via given {@link ClusterCommandExecutor}.
+	 * 
+	 * @param cluster must not be {@literal null}.
+	 * @param executor must not be {@literal null}.
+	 */
+	public JedisClusterConnection(JedisCluster cluster, ClusterCommandExecutor executor) {
+
+		Assert.notNull(cluster, "JedisCluster must not be null.");
+		Assert.notNull(executor, "ClusterCommandExecutor must not be null.");
+
+		this.closed = false;
+		this.cluster = cluster;
+		this.topologyProvider = new JedisClusterTopologyProvider(cluster);
+		this.clusterCommandExecutor = executor;
 	}
 
 	/*
@@ -3627,43 +3647,6 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 
 	/*
 	 * (non-Javadoc)
-	 * @see org.springframework.data.redis.connection.ClusterNodeResourceProvider#getResourceForSpecificNode(org.springframework.data.redis.connection.RedisClusterNode)
-	 */
-	@Override
-	@SuppressWarnings("unchecked")
-	public Jedis getResourceForSpecificNode(RedisClusterNode node) {
-
-		JedisPool pool = getResourcePoolForSpecificNode(node);
-		if (pool != null) {
-			return pool.getResource();
-		}
-
-		throw new IllegalArgumentException(String.format("Node %s is unknown to cluster", node));
-	}
-
-	protected JedisPool getResourcePoolForSpecificNode(RedisNode node) {
-
-		Assert.notNull(node, "Cannot get Pool for 'null' node!");
-
-		Map<String, JedisPool> clusterNodes = cluster.getClusterNodes();
-		if (clusterNodes.containsKey(node.asString())) {
-			return clusterNodes.get(node.asString());
-		}
-
-		return null;
-	}
-
-	/*
-	 * (non-Javadoc)
-	 * @see org.springframework.data.redis.connection.ClusterNodeResourceProvider#returnResourceForSpecificNode(org.springframework.data.redis.connection.RedisClusterNode, java.lang.Object)
-	 */
-	@Override
-	public void returnResourceForSpecificNode(RedisClusterNode node, Object client) {
-		getResourcePoolForSpecificNode(node).returnResource((Jedis) client);
-	}
-
-	/*
-	 * (non-Javadoc)
 	 * @see org.springframework.data.redis.connection.RedisConnection#close()
 	 */
 	@Override
@@ -3751,6 +3734,64 @@ public class JedisClusterConnection implements RedisClusterConnection, ClusterNo
 	 * @since 1.7
 	 */
 	protected interface JedisMultiKeyClusterCommandCallback<T> extends MultiKeyClusterCommandCallback<Jedis, T> {}
+
+	/**
+	 * Jedis specific implementation of {@link ClusterNodeResourceProvider}.
+	 * 
+	 * @author Christoph Strobl
+	 * @since 1.7
+	 */
+	static class JedisClusterNodeResourceProvider implements ClusterNodeResourceProvider {
+
+		private final JedisCluster cluster;
+
+		/**
+		 * Creates new {@link JedisClusterNodeResourceProvider}.
+		 * 
+		 * @param cluster must not be {@literal null}.
+		 */
+		public JedisClusterNodeResourceProvider(JedisCluster cluster) {
+			this.cluster = cluster;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.ClusterNodeResourceProvider#getResourceForSpecificNode(org.springframework.data.redis.connection.RedisClusterNode)
+		 */
+		@Override
+		@SuppressWarnings("unchecked")
+		public Jedis getResourceForSpecificNode(RedisClusterNode node) {
+
+			JedisPool pool = getResourcePoolForSpecificNode(node);
+			if (pool != null) {
+				return pool.getResource();
+			}
+
+			throw new IllegalArgumentException(String.format("Node %s is unknown to cluster", node));
+		}
+
+		protected JedisPool getResourcePoolForSpecificNode(RedisNode node) {
+
+			Assert.notNull(node, "Cannot get Pool for 'null' node!");
+
+			Map<String, JedisPool> clusterNodes = cluster.getClusterNodes();
+			if (clusterNodes.containsKey(node.asString())) {
+				return clusterNodes.get(node.asString());
+			}
+
+			return null;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.ClusterNodeResourceProvider#returnResourceForSpecificNode(org.springframework.data.redis.connection.RedisClusterNode, java.lang.Object)
+		 */
+		@Override
+		public void returnResourceForSpecificNode(RedisClusterNode node, Object client) {
+			getResourcePoolForSpecificNode(node).returnResource((Jedis) client);
+		}
+
+	}
 
 	/**
 	 * Jedis specific implementation of {@link ClusterTopologyProvider}.

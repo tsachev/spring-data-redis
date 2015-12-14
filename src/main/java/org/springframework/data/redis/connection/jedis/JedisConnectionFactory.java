@@ -33,6 +33,7 @@ import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.connection.ClusterCommandExecutor;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.RedisClusterConnection;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -102,6 +103,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 	private RedisSentinelConfiguration sentinelConfig;
 	private RedisClusterConfiguration clusterConfig;
 	private JedisCluster cluster;
+	private ClusterCommandExecutor clusterCommandExecutor;
 
 	/**
 	 * Constructs a new <code>JedisConnectionFactory</code> instance with default settings (default connection pooling, no
@@ -266,7 +268,11 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 	}
 
 	private JedisCluster createCluster() {
-		return createCluster(this.clusterConfig, this.poolConfig);
+
+		JedisCluster cluster = createCluster(this.clusterConfig, this.poolConfig);
+		this.clusterCommandExecutor = new ClusterCommandExecutor(new JedisClusterConnection.JedisClusterTopologyProvider(
+				cluster), new JedisClusterConnection.JedisClusterNodeResourceProvider(cluster), EXCEPTION_TRANSLATION);
+		return cluster;
 	}
 
 	/**
@@ -314,6 +320,11 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 			} catch (Exception ex) {
 				log.warn("Cannot properly close Jedis cluster", ex);
 			}
+			try {
+				clusterCommandExecutor.destroy();
+			} catch (Exception ex) {
+				log.warn("Cannot properly close cluster command executor", ex);
+			}
 		}
 	}
 
@@ -344,7 +355,7 @@ public class JedisConnectionFactory implements InitializingBean, DisposableBean,
 		if (cluster == null) {
 			throw new InvalidDataAccessApiUsageException("Cluster is not configured!");
 		}
-		return new JedisClusterConnection(cluster);
+		return new JedisClusterConnection(cluster, clusterCommandExecutor);
 	}
 
 	/*

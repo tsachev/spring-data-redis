@@ -30,6 +30,7 @@ import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.connection.ClusterCommandExecutor;
 import org.springframework.data.redis.connection.Pool;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.RedisClusterConnection;
@@ -91,6 +92,7 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 	private boolean convertPipelineAndTxResults = true;
 	private RedisSentinelConfiguration sentinelConfiguration;
 	private RedisClusterConfiguration clusterConfiguration;
+	private ClusterCommandExecutor clusterCommandExecutor;
 
 	/**
 	 * Constructs a new <code>LettuceConnectionFactory</code> instance with default settings.
@@ -130,13 +132,31 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 		this.pool = pool;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.beans.factory.InitializingBean#afterPropertiesSet()
+	 */
 	public void afterPropertiesSet() {
 		this.client = createRedisClient();
+
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.beans.factory.DisposableBean#destroy()
+	 */
 	public void destroy() {
 		resetConnection();
 		client.shutdown(shutdownTimeout, shutdownTimeout, TimeUnit.MILLISECONDS);
+
+		if (clusterCommandExecutor != null) {
+
+			try {
+				clusterCommandExecutor.destroy();
+			} catch (Exception ex) {
+				log.warn("Cannot properly close cluster command executor", ex);
+			}
+		}
 	}
 
 	/*
@@ -165,7 +185,7 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 			throw new InvalidDataAccessApiUsageException("Cluster is not configured!");
 		}
 
-		return new LettuceClusterConnection((RedisClusterClient) client);
+		return new LettuceClusterConnection((RedisClusterClient) client, clusterCommandExecutor);
 	}
 
 	public void initConnection() {
@@ -446,7 +466,14 @@ public class LettuceConnectionFactory implements InitializingBean, DisposableBea
 			for (RedisNode node : this.clusterConfiguration.getClusterNodes()) {
 				initialUris.add(new RedisURI(node.getHost(), node.getPort(), this.timeout, TimeUnit.MILLISECONDS));
 			}
-			return new RedisClusterClient(initialUris);
+
+			RedisClusterClient clusterClient = new RedisClusterClient(initialUris);
+
+			this.clusterCommandExecutor = new ClusterCommandExecutor(
+					new LettuceClusterConnection.LettuceClusterTopologyProvider(clusterClient),
+					new LettuceClusterConnection.LettuceClusterNodeResourceProvider(clusterClient), EXCEPTION_TRANSLATION);
+
+			return clusterClient;
 		}
 
 		if (pool != null) {
