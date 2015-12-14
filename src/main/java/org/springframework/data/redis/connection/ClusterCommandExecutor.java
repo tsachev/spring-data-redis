@@ -33,6 +33,7 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.ClusterRedirectException;
 import org.springframework.data.redis.ExceptionTranslationStrategy;
+import org.springframework.data.redis.TooManyClusterRedirectionsException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.Assert;
 
@@ -121,6 +122,14 @@ public class ClusterCommandExecutor implements DisposableBean {
 		Assert.notNull(cmd, "ClusterCommandCallback must not be null!");
 		Assert.notNull(node, "RedisClusterNode must not be null!");
 
+		if (redirectCount > maxRedirects) {
+			throw new TooManyClusterRedirectionsException(
+					String
+							.format(
+									"Cannot follow Cluster Redirects over more than %s legs. Please consider increasing the number of redirects to follow. Current value is: %s.",
+									redirectCount, maxRedirects));
+		}
+
 		S client = this.resourceProvider.getResourceForSpecificNode(node);
 		Assert.notNull(client, "Could not acquire resource for node. Is your cluster info up to date?");
 
@@ -129,10 +138,10 @@ public class ClusterCommandExecutor implements DisposableBean {
 		} catch (RuntimeException ex) {
 
 			RuntimeException translatedException = convertToDataAccessExeption(ex);
-			if (translatedException instanceof ClusterRedirectException && redirectCount < maxRedirects) {
+			if (translatedException instanceof ClusterRedirectException) {
 				ClusterRedirectException cre = (ClusterRedirectException) translatedException;
-				return executeCommandOnSingleNode(cmd, topologyProvider.getTopology().lookup(cre.getTargetHost(), cre.getTargetPort()),
-						redirectCount + 1);
+				return executeCommandOnSingleNode(cmd,
+						topologyProvider.getTopology().lookup(cre.getTargetHost(), cre.getTargetPort()), redirectCount + 1);
 			} else {
 				throw translatedException != null ? translatedException : ex;
 			}

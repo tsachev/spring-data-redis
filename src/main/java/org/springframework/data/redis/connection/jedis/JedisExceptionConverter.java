@@ -23,7 +23,9 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.ClusterRedirectException;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.TooManyClusterRedirectionsException;
 
+import redis.clients.jedis.exceptions.JedisClusterMaxRedirectionsException;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 import redis.clients.jedis.exceptions.JedisDataException;
 import redis.clients.jedis.exceptions.JedisException;
@@ -54,6 +56,11 @@ public class JedisExceptionConverter implements Converter<Exception, DataAccessE
 				return new ClusterRedirectException(re.getSlot(), re.getTargetNode().getHost(), re.getTargetNode().getPort(),
 						ex);
 			}
+
+			if (ex instanceof JedisClusterMaxRedirectionsException) {
+				return new TooManyClusterRedirectionsException(ex.getMessage(), ex);
+			}
+
 			return new InvalidDataAccessApiUsageException(ex.getMessage(), ex);
 		}
 		if (ex instanceof JedisConnectionException) {

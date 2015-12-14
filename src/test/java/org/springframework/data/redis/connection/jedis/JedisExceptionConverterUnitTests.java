@@ -23,9 +23,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.ClusterRedirectException;
+import org.springframework.data.redis.TooManyClusterRedirectionsException;
 
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.exceptions.JedisAskDataException;
+import redis.clients.jedis.exceptions.JedisClusterMaxRedirectionsException;
 import redis.clients.jedis.exceptions.JedisMovedDataException;
 
 /**
@@ -70,4 +72,15 @@ public class JedisExceptionConverterUnitTests {
 		assertThat(((ClusterRedirectException) converted).getTargetPort(), is(6381));
 	}
 
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void shouldConvertMaxRedirectException() {
+
+		DataAccessException converted = converter
+				.convert(new JedisClusterMaxRedirectionsException("Too many redirections?"));
+
+		assertThat(converted, instanceOf(TooManyClusterRedirectionsException.class));
+	}
 }

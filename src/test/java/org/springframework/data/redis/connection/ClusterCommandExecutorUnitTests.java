@@ -41,6 +41,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.redis.ClusterRedirectException;
 import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
+import org.springframework.data.redis.TooManyClusterRedirectionsException;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.ClusterCommandCallback;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.MultiKeyClusterCommandCallback;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
@@ -281,7 +282,7 @@ public class ClusterCommandExecutorUnitTests {
 			executor.setMaxRedirects(4);
 			executor.executeCommandOnSingleNode(COMMAND_CALLBACK, CLUSTER_NODE_1);
 		} catch (Exception e) {
-			assertThat(e, IsInstanceOf.instanceOf(ClusterRedirectException.class));
+			assertThat(e, IsInstanceOf.instanceOf(TooManyClusterRedirectionsException.class));
 		}
 
 		verify(con1, times(2)).theWheelWeavesAsTheWheelWills();
