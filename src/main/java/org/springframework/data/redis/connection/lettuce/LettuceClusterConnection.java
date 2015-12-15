@@ -1488,7 +1488,7 @@ public class LettuceClusterConnection extends LettuceConnection implements
 					public Set<RedisClusterNode> doInCluster(RedisClusterConnection<byte[], byte[]> client) {
 						return JedisConverters.toSetOfRedisClusterNodes(client.clusterSlaves((String) client.clusterMyId()));
 					}
-				}, topologyProvider.getTopology().getMasterNodes());
+				}, topologyProvider.getTopology().getActiveMasterNodes());
 	}
 
 	/**

@@ -45,14 +45,14 @@ public abstract class ClusterTestVariables {
 	public static final String MASTER_NODE_3_ID = "3b9b8192a874fa8f1f09dbc0ee20afab5738eee7";
 	public static final String SLAVEOF_NODE_1_ID = "b8b5ee73b1d1997abff694b3fe8b2397d2138b6d";
 
-	public static final RedisClusterNode CLUSTER_NODE_1 = new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_1_PORT).withId(
-			MASTER_NODE_1_ID).withType(NodeType.MASTER);
-	public static final RedisClusterNode CLUSTER_NODE_2 = new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_2_PORT).withId(
-			MASTER_NODE_2_ID).withType(NodeType.MASTER);
-	public static final RedisClusterNode CLUSTER_NODE_3 = new RedisClusterNode(CLUSTER_HOST, MASTER_NODE_3_PORT).withId(
-			MASTER_NODE_3_ID).withType(NodeType.MASTER);
-	public static final RedisClusterNode SLAVE_OF_NODE_1 = new RedisClusterNode(CLUSTER_HOST, SLAVEOF_NODE_1_PORT)
-			.withId(SLAVEOF_NODE_1_ID).withType(NodeType.SLAVE);
+	public static final RedisClusterNode CLUSTER_NODE_1 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_HOST, MASTER_NODE_1_PORT).withId(MASTER_NODE_1_ID).promotedAs(NodeType.MASTER).build();
+	public static final RedisClusterNode CLUSTER_NODE_2 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_HOST, MASTER_NODE_2_PORT).withId(MASTER_NODE_2_ID).promotedAs(NodeType.MASTER).build();
+	public static final RedisClusterNode CLUSTER_NODE_3 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_HOST, MASTER_NODE_3_PORT).withId(MASTER_NODE_3_ID).promotedAs(NodeType.MASTER).build();
+	public static final RedisClusterNode SLAVE_OF_NODE_1 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_HOST, SLAVEOF_NODE_1_PORT).withId(SLAVEOF_NODE_1_ID).promotedAs(NodeType.SLAVE).build();
 
 	public static final RedisClusterNode UNKNOWN_CLUSTER_NODE = new RedisClusterNode("8.8.8.8", 6379);
 

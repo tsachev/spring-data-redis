@@ -101,7 +101,7 @@ public class ClusterCommandExecutor implements DisposableBean {
 	public <T> T executeCommandOnArbitraryNode(ClusterCommandCallback<?, T> cmd) {
 
 		Assert.notNull(cmd, "ClusterCommandCallback must not be null!");
-		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(getClusterTopology().getNodes());
+		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(getClusterTopology().getActiveNodes());
 		return executeCommandOnSingleNode(cmd, nodes.get(new Random().nextInt(nodes.size())));
 	}
 
@@ -158,7 +158,7 @@ public class ClusterCommandExecutor implements DisposableBean {
 	 * @throws ClusterCommandExecutionFailureException
 	 */
 	public <S, T> Map<RedisClusterNode, T> executeCommandOnAllNodes(final ClusterCommandCallback<S, T> cmd) {
-		return executeCommandAsyncOnNodes(cmd, getClusterTopology().getMasterNodes());
+		return executeCommandAsyncOnNodes(cmd, getClusterTopology().getActiveMasterNodes());
 	}
 
 	/**

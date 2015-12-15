@@ -25,12 +25,12 @@ import org.springframework.util.ObjectUtils;
  */
 public class RedisNode implements NamedNode {
 
-	private String id;
-	private String name;
-	private String host;
-	private int port;
-	private NodeType type;
-	private String masterId;
+	String id;
+	String name;
+	String host;
+	int port;
+	NodeType type;
+	String masterId;
 
 	/**
 	 * Creates a new {@link RedisNode} with the given {@code host}, {@code port}.
@@ -78,35 +78,11 @@ public class RedisNode implements NamedNode {
 	}
 
 	/**
-	 * @param masterId
-	 * @since 1.7
-	 */
-	public void setMasterId(String masterId) {
-		this.masterId = masterId;
-	}
-
-	/**
 	 * @return
 	 * @since 1.7
 	 */
 	public String getId() {
 		return id;
-	}
-
-	/**
-	 * @param id
-	 * @since 1.7
-	 */
-	public void setId(String id) {
-		this.id = id;
-	}
-
-	/**
-	 * @param type
-	 * @since 1.6
-	 */
-	public void setType(NodeType type) {
-		this.type = type;
 	}
 
 	/**
@@ -131,6 +107,16 @@ public class RedisNode implements NamedNode {
 	 */
 	public boolean isSlave() {
 		return ObjectUtils.nullSafeEquals(NodeType.SLAVE, getType());
+	}
+
+	/**
+	 * Get {@link RedisNodeBuilder} for creating new {@link RedisNode}.
+	 * 
+	 * @return never {@literal null}.
+	 * @since 1.7
+	 */
+	public static RedisNodeBuilder newRedisNode() {
+		return new RedisNodeBuilder();
 	}
 
 	@Override
@@ -183,6 +169,8 @@ public class RedisNode implements NamedNode {
 	}
 
 	/**
+	 * Builder for creating new {@link RedisNode}.
+	 * 
 	 * @author Christoph Strobl
 	 * @since 1.4
 	 */
@@ -194,11 +182,21 @@ public class RedisNode implements NamedNode {
 			node = new RedisNode();
 		}
 
+		/**
+		 * Define node name.
+		 */
 		public RedisNodeBuilder withName(String name) {
 			node.name = name;
 			return this;
 		}
 
+		/**
+		 * Set host and port of server.
+		 * 
+		 * @param host must not be {@literal null}.
+		 * @param port
+		 * @return
+		 */
 		public RedisNodeBuilder listeningAt(String host, int port) {
 
 			Assert.hasText(host, "Hostname must not be empty or null.");
@@ -207,25 +205,52 @@ public class RedisNode implements NamedNode {
 			return this;
 		}
 
+		/**
+		 * Set id of server.
+		 * 
+		 * @param id
+		 * @return
+		 */
 		public RedisNodeBuilder withId(String id) {
 
 			node.id = id;
 			return this;
 		}
 
+		/**
+		 * Set server role.
+		 * 
+		 * @param nodeType
+		 * @return
+		 * @since 1.7
+		 */
+		public RedisNodeBuilder promotedAs(NodeType type) {
+
+			node.type = type;
+			return this;
+		}
+
+		/**
+		 * Set the id of the master node.
+		 * 
+		 * @param masterId
+		 * @return
+		 * @since 1.7
+		 */
+		public RedisNodeBuilder slaveOf(String masterId) {
+
+			node.masterId = masterId;
+			return this;
+		}
+
+		/**
+		 * Get the {@link RedisNode}.
+		 * 
+		 * @return
+		 */
 		public RedisNode build() {
 			return this.node;
 		}
-	}
-
-	public <T extends RedisNode> T withId(String id) {
-		this.id = id;
-		return (T) this;
-	}
-
-	public <T extends RedisNode> T withType(NodeType type) {
-		this.type = type;
-		return (T) this;
 	}
 
 }

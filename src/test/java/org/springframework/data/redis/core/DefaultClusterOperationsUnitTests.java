@@ -49,11 +49,11 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @RunWith(MockitoJUnitRunner.class)
 public class DefaultClusterOperationsUnitTests {
 
-	static final RedisClusterNode NODE_1 = new RedisClusterNode("127.0.0.1", 6379, null)
-			.withId("d1861060fe6a534d42d8a19aeb36600e18785e04");
+	static final RedisClusterNode NODE_1 = RedisClusterNode.newRedisClusterNode().listeningAt("127.0.0.1", 6379)
+			.withId("d1861060fe6a534d42d8a19aeb36600e18785e04").build();
 
-	static final RedisClusterNode NODE_2 = new RedisClusterNode("127.0.0.1", 6380, null)
-			.withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84");
+	static final RedisClusterNode NODE_2 = RedisClusterNode.newRedisClusterNode().listeningAt("127.0.0.1", 6380)
+			.withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84").build();
 
 	@Mock RedisConnectionFactory connectionFactory;
 	@Mock RedisClusterConnection connection;

@@ -51,6 +51,40 @@ public class ClusterTopology {
 	}
 
 	/**
+	 * Get all nodes (master and slave) in cluster where {@code link-state} is {@literal connected} and {@code flags} does
+	 * not contain {@literal fail} or {@literal fail?}.
+	 * 
+	 * @return never {@literal null}.
+	 */
+	public Set<RedisClusterNode> getActiveNodes() {
+
+		Set<RedisClusterNode> activeNodes = new LinkedHashSet<RedisClusterNode>(nodes.size());
+		for (RedisClusterNode node : nodes) {
+			if (node.isConnected() && !node.isMarkedAsFail()) {
+				activeNodes.add(node);
+			}
+		}
+		return activeNodes;
+	}
+
+	/**
+	 * Get all master nodes in cluster where {@code link-state} is {@literal connected} and {@code flags} does not contain
+	 * {@literal fail} or {@literal fail?}.
+	 * 
+	 * @return never {@literal null}.
+	 */
+	public Set<RedisClusterNode> getActiveMasterNodes() {
+
+		Set<RedisClusterNode> activeMasterNodes = new LinkedHashSet<RedisClusterNode>(nodes.size());
+		for (RedisClusterNode node : nodes) {
+			if (node.isMaster() && node.isConnected() && !node.isMarkedAsFail()) {
+				activeMasterNodes.add(node);
+			}
+		}
+		return activeMasterNodes;
+	}
+
+	/**
 	 * Get all master nodes in cluster.
 	 * 
 	 * @return never {@literal null}.

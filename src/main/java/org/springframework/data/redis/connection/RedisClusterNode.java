@@ -31,7 +31,13 @@ import org.springframework.util.CollectionUtils;
  */
 public class RedisClusterNode extends RedisNode {
 
-	private final SlotRange slotRange;
+	private SlotRange slotRange;
+	private LinkState linkState;
+	private Set<Flag> flags;
+
+	protected RedisClusterNode() {
+		super();
+	}
 
 	/**
 	 * Creates new {@link RedisClusterNode} with empty {@link SlotRange}.
@@ -73,9 +79,54 @@ public class RedisClusterNode extends RedisNode {
 		return slotRange.contains(slot);
 	}
 
+	/**
+	 * @return
+	 */
+	public LinkState getLinkState() {
+		return linkState;
+	}
+
+	/**
+	 * @return true if node is connected to cluster.
+	 */
+	public boolean isConnected() {
+		return LinkState.CONNECTED.equals(linkState);
+	}
+
+	/**
+	 * @return never {@literal null}.
+	 */
+	public Set<Flag> getFlags() {
+		return flags == null ? Collections.<Flag> emptySet() : flags;
+	}
+
+	/**
+	 * @return true if node is marked as failing.
+	 */
+	public boolean isMarkedAsFail() {
+
+		if (!CollectionUtils.isEmpty(flags)) {
+			return flags.contains(Flag.FAIL) || flags.contains(Flag.PFAIL);
+		}
+		return false;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * @see org.springframework.data.redis.connection.RedisNode#toString()
+	 */
 	@Override
 	public String toString() {
 		return super.toString();
+	}
+
+	/**
+	 * Get {@link RedisClusterNodeBuilder} for creating new {@link RedisClusterNode}.
+	 * 
+	 * @return never {@literal null}.
+	 */
+	public static RedisClusterNodeBuilder newRedisClusterNode() {
+		return new RedisClusterNodeBuilder();
 	}
 
 	/**
@@ -138,4 +189,154 @@ public class RedisClusterNode extends RedisNode {
 			return slots;
 		}
 	}
+
+	/**
+	 * @author Christoph Strobl
+	 * @since 1.7
+	 */
+	public static enum LinkState {
+		CONNECTED, DISCONNECTED
+	}
+
+	/**
+	 * @author Christoph Strobl
+	 * @since 1.7
+	 */
+	public static enum Flag {
+
+		MYSELF("myself"), MASTER("master"), SLAVE("slave"), FAIL("fail"), PFAIL("fail?"), HANDSHAKE("handshake"), NOADDR(
+				"noaddr"), NOFLAGS("noflags");
+
+		private String raw;
+
+		Flag(String raw) {
+			this.raw = raw;
+		}
+
+		public String getRaw() {
+			return raw;
+		}
+
+	}
+
+	/**
+	 * Builder for creating new {@link RedisClusterNode}.
+	 * 
+	 * @author Christoph Strobl
+	 * @since 1.7
+	 */
+	public static class RedisClusterNodeBuilder extends RedisNodeBuilder {
+
+		Set<Flag> flags;
+		LinkState linkState;
+		SlotRange slotRange;
+
+		public RedisClusterNodeBuilder() {
+
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.RedisNode.RedisNodeBuilder#listeningAt(java.lang.String, int)
+		 */
+		@Override
+		public RedisClusterNodeBuilder listeningAt(String host, int port) {
+			super.listeningAt(host, port);
+			return this;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.RedisNode.RedisNodeBuilder#withName(java.lang.String)
+		 */
+		@Override
+		public RedisClusterNodeBuilder withName(String name) {
+			super.withName(name);
+			return this;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.RedisNode.RedisNodeBuilder#withId(java.lang.String)
+		 */
+		@Override
+		public RedisClusterNodeBuilder withId(String id) {
+			super.withId(id);
+			return this;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.RedisNode.RedisNodeBuilder#promotedAs(org.springframework.data.redis.connection.RedisNode.NodeType)
+		 */
+		@Override
+		public RedisClusterNodeBuilder promotedAs(NodeType nodeType) {
+			super.promotedAs(nodeType);
+			return this;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.RedisNode.RedisNodeBuilder#slaveOf(java.lang.String)
+		 */
+		public RedisClusterNodeBuilder slaveOf(String masterId) {
+			super.slaveOf(masterId);
+			return this;
+		}
+
+		/**
+		 * Set flags for node.
+		 * 
+		 * @param flags
+		 * @return
+		 */
+		public RedisClusterNodeBuilder withFlags(Set<Flag> flags) {
+
+			this.flags = flags;
+			return this;
+		}
+
+		/**
+		 * Set {@link SlotRange}.
+		 * 
+		 * @param range
+		 * @return
+		 */
+		public RedisClusterNodeBuilder serving(SlotRange range) {
+
+			this.slotRange = range;
+			return this;
+		}
+
+		/**
+		 * Set {@link LinkState}.
+		 * 
+		 * @param linkState
+		 * @return
+		 */
+		public RedisClusterNodeBuilder linkState(LinkState linkState) {
+			this.linkState = linkState;
+			return this;
+		}
+
+		/*
+		 * (non-Javadoc)
+		 * @see org.springframework.data.redis.connection.RedisNode.RedisNodeBuilder#build()
+		 */
+		@Override
+		public RedisClusterNode build() {
+
+			RedisNode base = super.build();
+
+			RedisClusterNode node = new RedisClusterNode(base.getHost(), base.getPort(), slotRange);
+			node.id = base.id;
+			node.type = base.type;
+			node.masterId = base.masterId;
+			node.name = base.name;
+			node.flags = flags;
+			node.linkState = linkState;
+			return node;
+		}
+	}
+
 }

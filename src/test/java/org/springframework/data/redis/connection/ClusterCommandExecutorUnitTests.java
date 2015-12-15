@@ -44,6 +44,7 @@ import org.springframework.data.redis.PassThroughExceptionTranslationStrategy;
 import org.springframework.data.redis.TooManyClusterRedirectionsException;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.ClusterCommandCallback;
 import org.springframework.data.redis.connection.ClusterCommandExecutor.MultiKeyClusterCommandCallback;
+import org.springframework.data.redis.connection.RedisClusterNode.LinkState;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisNode.NodeType;
 import org.springframework.scheduling.concurrent.ConcurrentTaskExecutor;
@@ -62,12 +63,18 @@ public class ClusterCommandExecutorUnitTests {
 	static final int CLUSTER_NODE_2_PORT = 7380;
 	static final int CLUSTER_NODE_3_PORT = 7381;
 
-	static final RedisClusterNode CLUSTER_NODE_1 = new RedisClusterNode(CLUSTER_NODE_1_HOST, CLUSTER_NODE_1_PORT,
-			new SlotRange(0, 5460)).withId("ef570f86c7b1a953846668debc177a3a16733420").withType(NodeType.MASTER);
-	static final RedisClusterNode CLUSTER_NODE_2 = new RedisClusterNode(CLUSTER_NODE_2_HOST, CLUSTER_NODE_2_PORT,
-			new SlotRange(5461, 10922)).withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84").withType(NodeType.MASTER);;
-	static final RedisClusterNode CLUSTER_NODE_3 = new RedisClusterNode(CLUSTER_NODE_3_HOST, CLUSTER_NODE_3_PORT,
-			new SlotRange(10923, 16383)).withId("3b9b8192a874fa8f1f09dbc0ee20afab5738eee7").withType(NodeType.MASTER);;
+	static final RedisClusterNode CLUSTER_NODE_1 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_NODE_1_HOST, CLUSTER_NODE_1_PORT).serving(new SlotRange(0, 5460))
+			.withId("ef570f86c7b1a953846668debc177a3a16733420").promotedAs(NodeType.MASTER).linkState(LinkState.CONNECTED)
+			.build();
+	static final RedisClusterNode CLUSTER_NODE_2 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_NODE_2_HOST, CLUSTER_NODE_2_PORT).serving(new SlotRange(5461, 10922))
+			.withId("0f2ee5df45d18c50aca07228cc18b1da96fd5e84").promotedAs(NodeType.MASTER).linkState(LinkState.CONNECTED)
+			.build();
+	static final RedisClusterNode CLUSTER_NODE_3 = RedisClusterNode.newRedisClusterNode()
+			.listeningAt(CLUSTER_NODE_3_HOST, CLUSTER_NODE_3_PORT).serving(new SlotRange(10923, 16383))
+			.withId("3b9b8192a874fa8f1f09dbc0ee20afab5738eee7").promotedAs(NodeType.MASTER).linkState(LinkState.CONNECTED)
+			.build();
 
 	static final RedisClusterNode UNKNOWN_CLUSTER_NODE = new RedisClusterNode("8.8.8.8", 7379, null);
 
@@ -111,6 +118,7 @@ public class ClusterCommandExecutorUnitTests {
 
 	@Before
 	public void setUp() {
+
 		this.executor = new ClusterCommandExecutor(new MockClusterNodeProvider(), new MockClusterResourceProvider(),
 				new PassThroughExceptionTranslationStrategy(exceptionConverter));
 	}

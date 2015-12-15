@@ -16,6 +16,7 @@
 package org.springframework.data.redis.connection.convert;
 
 import static org.hamcrest.core.Is.*;
+import static org.hamcrest.core.IsCollectionContaining.*;
 import static org.hamcrest.core.IsNull.*;
 import static org.junit.Assert.*;
 
@@ -23,6 +24,8 @@ import java.util.Iterator;
 
 import org.junit.Test;
 import org.springframework.data.redis.connection.RedisClusterNode;
+import org.springframework.data.redis.connection.RedisClusterNode.Flag;
+import org.springframework.data.redis.connection.RedisClusterNode.LinkState;
 import org.springframework.data.redis.connection.RedisNode.NodeType;
 import org.springframework.data.redis.connection.jedis.JedisConverters;
 
@@ -42,6 +45,8 @@ public class ConvertersUnitTests {
 
 	private static final String CLUSTER_NODE_WITH_SINGLE_SLOT_RESPONSE = "ef570f86c7b1a953846668debc177a3a16733420 127.0.0.1:6379 myself,master - 0 0 1 connected 3456";
 
+	private static final String CLUSTER_NODE_WITH_FAIL_FLAG_AND_DISCONNECTED_LINK_STATE = "b8b5ee73b1d1997abff694b3fe8b2397d2138b6d 127.0.0.1:7382 master,fail - 1450160048933 1450160048832 38 disconnected";
+
 	/**
 	 * @see DATAREDIS-315
 	 */
@@ -57,6 +62,8 @@ public class ConvertersUnitTests {
 		assertThat(node.getType(), is(NodeType.MASTER));
 		assertThat(node.getSlotRange().contains(0), is(true));
 		assertThat(node.getSlotRange().contains(5460), is(true));
+		assertThat(node.getFlags(), hasItems(Flag.MASTER, Flag.MYSELF));
+		assertThat(node.getLinkState(), is(LinkState.CONNECTED));
 
 		node = nodes.next(); // 127.0.0.1:6380
 		assertThat(node.getId(), is("0f2ee5df45d18c50aca07228cc18b1da96fd5e84"));
@@ -65,6 +72,8 @@ public class ConvertersUnitTests {
 		assertThat(node.getType(), is(NodeType.MASTER));
 		assertThat(node.getSlotRange().contains(5461), is(true));
 		assertThat(node.getSlotRange().contains(10922), is(true));
+		assertThat(node.getFlags(), hasItems(Flag.MASTER));
+		assertThat(node.getLinkState(), is(LinkState.CONNECTED));
 
 		node = nodes.next(); // 127.0.0.1:638
 		assertThat(node.getId(), is("3b9b8192a874fa8f1f09dbc0ee20afab5738eee7"));
@@ -73,6 +82,8 @@ public class ConvertersUnitTests {
 		assertThat(node.getType(), is(NodeType.MASTER));
 		assertThat(node.getSlotRange().contains(10923), is(true));
 		assertThat(node.getSlotRange().contains(16383), is(true));
+		assertThat(node.getFlags(), hasItems(Flag.MASTER));
+		assertThat(node.getLinkState(), is(LinkState.CONNECTED));
 
 		node = nodes.next(); // 127.0.0.1:7369
 		assertThat(node.getId(), is("8cad73f63eb996fedba89f041636f17d88cda075"));
@@ -81,6 +92,8 @@ public class ConvertersUnitTests {
 		assertThat(node.getType(), is(NodeType.SLAVE));
 		assertThat(node.getMasterId(), is("ef570f86c7b1a953846668debc177a3a16733420"));
 		assertThat(node.getSlotRange(), notNullValue());
+		assertThat(node.getFlags(), hasItems(Flag.SLAVE));
+		assertThat(node.getLinkState(), is(LinkState.CONNECTED));
 	}
 
 	/**
@@ -98,6 +111,25 @@ public class ConvertersUnitTests {
 		assertThat(node.getPort(), is(6379));
 		assertThat(node.getType(), is(NodeType.MASTER));
 		assertThat(node.getSlotRange().contains(3456), is(true));
+	}
+
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void toSetOfRedisClusterNodesShouldParseLinkStateAndDisconnectedCorrectly() {
+
+		Iterator<RedisClusterNode> nodes = JedisConverters.toSetOfRedisClusterNodes(
+				CLUSTER_NODE_WITH_FAIL_FLAG_AND_DISCONNECTED_LINK_STATE).iterator();
+
+		RedisClusterNode node = nodes.next();
+		assertThat(node.getId(), is("b8b5ee73b1d1997abff694b3fe8b2397d2138b6d"));
+		assertThat(node.getHost(), is("127.0.0.1"));
+		assertThat(node.getPort(), is(7382));
+		assertThat(node.getType(), is(NodeType.MASTER));
+		assertThat(node.getFlags(), hasItems(Flag.MASTER, Flag.FAIL));
+		assertThat(node.getLinkState(), is(LinkState.DISCONNECTED));
+		assertThat(node.getSlotRange().getSlots().size(), is(0));
 	}
 
 }

@@ -31,6 +31,8 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.DefaultTuple;
 import org.springframework.data.redis.connection.RedisClusterNode;
+import org.springframework.data.redis.connection.RedisClusterNode.Flag;
+import org.springframework.data.redis.connection.RedisClusterNode.LinkState;
 import org.springframework.data.redis.connection.RedisClusterNode.SlotRange;
 import org.springframework.data.redis.connection.RedisListCommands.Position;
 import org.springframework.data.redis.connection.RedisNode;
@@ -56,6 +58,7 @@ import com.lambdaworks.redis.ScoredValue;
 import com.lambdaworks.redis.ScriptOutputType;
 import com.lambdaworks.redis.SortArgs;
 import com.lambdaworks.redis.cluster.models.partitions.Partitions;
+import com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode.NodeFlag;
 import com.lambdaworks.redis.protocol.LettuceCharsets;
 
 /**
@@ -228,13 +231,47 @@ abstract public class LettuceConverters extends Converters {
 			@Override
 			public RedisClusterNode convert(com.lambdaworks.redis.cluster.models.partitions.RedisClusterNode source) {
 
-				RedisClusterNode clusterNode = new RedisClusterNode(source.getUri().getHost(), source.getUri().getPort(),
-						new SlotRange(source.getSlots()));
-				clusterNode.setId(source.getNodeId());
-				clusterNode.setMasterId(source.getSlaveOf());
-				clusterNode.setType(StringUtils.hasText(source.getSlaveOf()) ? NodeType.SLAVE : NodeType.MASTER);
+				Set<Flag> flags = parseFlags(source.getFlags());
 
-				return clusterNode;
+				return RedisClusterNode.newRedisClusterNode().listeningAt(source.getUri().getHost(), source.getUri().getPort())
+						.withId(source.getNodeId()).promotedAs(flags.contains(Flag.MASTER) ? NodeType.MASTER : NodeType.SLAVE)
+						.serving(new SlotRange(source.getSlots())).withFlags(flags)
+						.linkState(source.isConnected() ? LinkState.CONNECTED : LinkState.DISCONNECTED)
+						.slaveOf(source.getSlaveOf()).build();
+			}
+
+			private Set<Flag> parseFlags(Set<NodeFlag> source) {
+
+				Set<Flag> flags = new LinkedHashSet<Flag>(source != null ? source.size() : 8, 1);
+				for (NodeFlag flag : source) {
+					switch (flag) {
+						case NOFLAGS:
+							flags.add(Flag.NOFLAGS);
+							break;
+						case EVENTUAL_FAIL:
+							flags.add(Flag.PFAIL);
+							break;
+						case FAIL:
+							flags.add(Flag.FAIL);
+							break;
+						case HANDSHAKE:
+							flags.add(Flag.HANDSHAKE);
+							break;
+						case MASTER:
+							flags.add(Flag.MASTER);
+							break;
+						case MYSELF:
+							flags.add(Flag.MYSELF);
+							break;
+						case NOADDR:
+							flags.add(Flag.NOADDR);
+							break;
+						case SLAVE:
+							flags.add(Flag.SLAVE);
+							break;
+					}
+				}
+				return flags;
 			}
 
 		};

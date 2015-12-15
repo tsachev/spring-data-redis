@@ -247,7 +247,7 @@ public class JedisClusterConnection implements RedisClusterConnection {
 	@Override
 	public byte[] randomKey() {
 
-		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(topologyProvider.getTopology().getMasterNodes());
+		List<RedisClusterNode> nodes = new ArrayList<RedisClusterNode>(topologyProvider.getTopology().getActiveMasterNodes());
 		Set<RedisNode> inspectedNodes = new HashSet<RedisNode>(nodes.size());
 
 		do {
@@ -3450,7 +3450,7 @@ public class JedisClusterConnection implements RedisClusterConnection {
 	@Override
 	public void clusterForget(final RedisClusterNode node) {
 
-		Set<RedisClusterNode> nodes = new LinkedHashSet<RedisClusterNode>(topologyProvider.getTopology().getMasterNodes());
+		Set<RedisClusterNode> nodes = new LinkedHashSet<RedisClusterNode>(topologyProvider.getTopology().getActiveMasterNodes());
 		nodes.remove(node);
 
 		clusterCommandExecutor.executeCommandAsyncOnNodes(new JedisClusterCommandCallback<String>() {
@@ -3578,7 +3578,7 @@ public class JedisClusterConnection implements RedisClusterConnection {
 						return JedisConverters.toSetOfRedisClusterNodes(client.clusterSlaves((String) client.eval(
 								"return redis.call('cluster', 'myid')", 0)));
 					}
-				}, topologyProvider.getTopology().getMasterNodes());
+				}, topologyProvider.getTopology().getActiveMasterNodes());
 	}
 
 	/*
