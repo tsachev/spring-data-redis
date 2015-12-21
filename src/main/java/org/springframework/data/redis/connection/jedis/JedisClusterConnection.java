@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -3826,7 +3827,10 @@ public class JedisClusterConnection implements RedisClusterConnection {
 				return cached;
 			}
 
+			Map<String, Exception> errors = new LinkedHashMap<String, Exception>();
+
 			for (Entry<String, JedisPool> entry : cluster.getClusterNodes().entrySet()) {
+
 				Jedis jedis = null;
 
 				try {
@@ -3839,8 +3843,8 @@ public class JedisClusterConnection implements RedisClusterConnection {
 						cached = new ClusterTopology(nodes);
 					}
 					return cached;
-				} catch (Exception e) {
-					// just ignore this error and proceed with another node
+				} catch (Exception ex) {
+					errors.put(entry.getKey(), ex);
 				} finally {
 					if (jedis != null) {
 						entry.getValue().returnResource(jedis);
@@ -3848,7 +3852,12 @@ public class JedisClusterConnection implements RedisClusterConnection {
 				}
 			}
 
-			throw new ClusterStateFailureExeption("Could not retrieve cluster info.");
+			StringBuilder sb = new StringBuilder();
+			for (Entry<String, Exception> entry : errors.entrySet()) {
+				sb.append(String.format("\r\n\t- %s failed: %s", entry.getKey(), entry.getValue().getMessage()));
+			}
+			throw new ClusterStateFailureExeption(
+					"Could not retrieve cluster information. CLUSTER NODES returned with error." + sb.toString());
 		}
 	}
 

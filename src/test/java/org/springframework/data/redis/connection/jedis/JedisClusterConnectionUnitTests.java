@@ -29,17 +29,22 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.data.redis.ClusterStateFailureExeption;
 import org.springframework.data.redis.connection.ClusterInfo;
 import org.springframework.data.redis.connection.RedisClusterCommands.AddSlots;
 import org.springframework.data.redis.connection.RedisClusterNode;
+import org.springframework.data.redis.connection.jedis.JedisClusterConnection.JedisClusterTopologyProvider;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisCluster;
 import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.exceptions.JedisConnectionException;
 
 /**
  * @author Christoph Strobl
@@ -77,6 +82,8 @@ public class JedisClusterConnectionUnitTests {
 	@Mock Jedis con2Mock;
 	@Mock Jedis con3Mock;
 
+	public @Rule ExpectedException expectedException = ExpectedException.none();
+
 	@Before
 	public void setUp() {
 
@@ -98,8 +105,11 @@ public class JedisClusterConnectionUnitTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
-	@Test(expected = IllegalArgumentException.class)
+	@Test
 	public void thowsExceptionWhenClusterCommandExecturorIsNull() {
+
+		expectedException.expect(IllegalArgumentException.class);
+
 		new JedisClusterConnection(clusterMock, null);
 	}
 
@@ -119,8 +129,11 @@ public class JedisClusterConnectionUnitTests {
 	/**
 	 * @see DATAREDIS-315
 	 */
-	@Test(expected = IllegalArgumentException.class)
+	@Test
 	public void clusterMeetShouldThrowExceptionWhenNodeIsNull() {
+
+		expectedException.expect(IllegalArgumentException.class);
+
 		connection.clusterMeet(null);
 	}
 
@@ -328,4 +341,21 @@ public class JedisClusterConnectionUnitTests {
 		verify(con3Mock, never()).configResetStat();
 	}
 
+	/**
+	 * @see DATAREDIS-315
+	 */
+	@Test
+	public void clusterTopologyProviderShouldCollectErrorsWhenLoadingNodes() {
+
+		expectedException.expect(ClusterStateFailureExeption.class);
+		expectedException.expectMessage("127.0.0.1:7379 failed: o.O");
+		expectedException.expectMessage("127.0.0.1:7380 failed: o.1");
+		expectedException.expectMessage("127.0.0.1:7381 failed: o.2");
+
+		when(con1Mock.clusterNodes()).thenThrow(new JedisConnectionException("o.O"));
+		when(con2Mock.clusterNodes()).thenThrow(new JedisConnectionException("o.1"));
+		when(con3Mock.clusterNodes()).thenThrow(new JedisConnectionException("o.2"));
+
+		new JedisClusterTopologyProvider(clusterMock).getTopology();
+	}
 }
